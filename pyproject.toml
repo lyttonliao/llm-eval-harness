@@ -1,0 +1,19 @@
+[project]
+name = "llm-eval-harness"
+version = "0.1.0"
+description = "From-scratch eval harness for scoring prompt/model quality on a bug-triage task."
+requires-python = ">=3.14"
+dependencies = []
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+# All tests here are function-based; disable class-based collection so pytest
+# doesn't try (and warn about) collecting eval_harness.schema.TestCase, which
+# is a domain dataclass, not a test class.
+python_classes = "NoPytestTestClasses"
