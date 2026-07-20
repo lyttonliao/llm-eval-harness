@@ -1,0 +1,147 @@
+{
+  "prompt_version": "v2_rubric",
+  "model": "haiku",
+  "total_cases": 15,
+  "severity_accuracy": 0.8,
+  "category_accuracy": 1.0,
+  "fully_correct_rate": 0.8,
+  "avg_judge_score": 0.822,
+  "total_cost_usd": 0.067515,
+  "results": [
+    {
+      "test_id": "bt-01",
+      "severity_correct": true,
+      "category_correct": true,
+      "judge_score": 0.78,
+      "judge_rationale": "Reasoning is internally coherent and grounded in specific details from the report (identifies the visible flash, notes no functionality blocking, recognizes SSR mismatch pattern), but doesn't explore whether the hydration mismatch is consistent across all loads or data-dependent, which could materially affect whether 'medium' is the right severity for a customer-facing product page.",
+      "cost_usd": 0.004135,
+      "duration_ms": 8129
+    },
+    {
+      "test_id": "bt-02",
+      "severity_correct": false,
+      "category_correct": true,
+      "judge_score": 0.45,
+      "judge_rationale": "The reasoning conflates two distinct failure modes\u2014the report explicitly states the endpoint returns 500 (explicit error), not that events are 'silently dropped'\u2014and infers 'missed payment reconciliation' and 'downstream financial impact' without evidence in the report; while the label is defensible and the null-customer grounding is direct, the reasoning doesn't explain the causal chain or justify the inferences about consequences.",
+      "cost_usd": 0.004195000000000001,
+      "duration_ms": 7255
+    },
+    {
+      "test_id": "bt-03",
+      "severity_correct": true,
+      "category_correct": true,
+      "judge_score": 0.92,
+      "judge_rationale": "Reasoning is tightly grounded in specific technical details from the report (DynamoDB state lock, cancelled CI run, blocked deployments) and the severity/category align logically with the claimed impact; the only minor tension is whether a completely blocked deployment pipeline should be 'critical' rather than 'high,' but 'high' is defensible since there's no active service degradation.",
+      "cost_usd": 0.003859,
+      "duration_ms": 8531
+    },
+    {
+      "test_id": "bt-04",
+      "severity_correct": true,
+      "category_correct": true,
+      "judge_score": 0.84,
+      "judge_rationale": "The reasoning correctly traces the root cause (double-run backfill) \u2192 consequence (duplicate order_ids violating unique constraint) \u2192 impact (data corruption) and maps them to a defensible high/data classification; however, it makes a minor inference that 'all downstream queries now produce wrong results' without the report explicitly confirming whether the constraint violation prevented data insertion or whether duplicates already persist in the table.",
+      "cost_usd": 0.006243,
+      "duration_ms": 14282
+    },
+    {
+      "test_id": "bt-05",
+      "severity_correct": true,
+      "category_correct": true,
+      "judge_score": 0.87,
+      "judge_rationale": "The reasoning correctly maps the root cause (Redux state not cleared on logout) to the symptom (stale name flash), ties it to the mechanism (render-before-fetch race), and justifies medium severity by explicitly noting UX impact without authentication/data-loss consequences\u2014all grounded in report specifics, though could be slightly sharper by addressing whether this is purely cosmetic or could expose sensitive data beyond the name.",
+      "cost_usd": 0.004369,
+      "duration_ms": 11431
+    },
+    {
+      "test_id": "bt-06",
+      "severity_correct": true,
+      "category_correct": true,
+      "judge_score": 0.8,
+      "judge_rationale": "The reasoning is well-grounded in specific report details (CrashLoopBackOff, ArgoCD sync, ConfigMap key mismatch) and the technical causal chain is sound, but 'blocking core payment flows' is an inference not explicitly stated in the report\u2014though reasonable given the service name and severity assignment.",
+      "cost_usd": 0.003611,
+      "duration_ms": 7139
+    },
+    {
+      "test_id": "bt-07",
+      "severity_correct": false,
+      "category_correct": true,
+      "judge_score": 0.88,
+      "judge_rationale": "Reasoning directly cites specific report details (2+ second p95, orders table, missing index on filter column from recent migration), correctly identifies the root cause as fixable, and makes a sound but not-explicitly-stated assumption that orders queries are core user flows, which justifies the high severity and backend categorization.",
+      "cost_usd": 0.004488,
+      "duration_ms": 7901
+    },
+    {
+      "test_id": "bt-08",
+      "severity_correct": true,
+      "category_correct": true,
+      "judge_score": 0.87,
+      "judge_rationale": "The reasoning directly grounds itself in specific report details (40 products, silent cron failure, missing from search), correctly infers downstream impact on discoverability, and coherently justifies why 'high' is appropriate for degraded-but-not-broken functionality\u2014but could have been slightly more explicit about what 'silently failing' diagnostically implies for root cause.",
+      "cost_usd": 0.003834,
+      "duration_ms": 6859
+    },
+    {
+      "test_id": "bt-09",
+      "severity_correct": true,
+      "category_correct": true,
+      "judge_score": 0.88,
+      "judge_rationale": "Reasoning directly maps report details (dynamic Tailwind classes stripped in prod, dev/prod discrepancy, cards unstyled) to coherent severity judgment; justifies 'medium' by correctly identifying visible UX degradation vs non-blocking functional impact, and 'frontend' category is straightforward; minor: could have been more specific about Tailwind's content-purging mechanics as root cause, but triage-level reasoning is sound.",
+      "cost_usd": 0.005256,
+      "duration_ms": 14201
+    },
+    {
+      "test_id": "bt-10",
+      "severity_correct": true,
+      "category_correct": true,
+      "judge_score": 0.84,
+      "judge_rationale": "Reasoning is internally coherent and grounded in specific report details (15% precision drop, MLflow metric logging, no alert consumption, fraud detection domain), though it prioritizes the monitoring gap over investigating root cause (data drift, training data quality, retraining process)\u2014a reasonable focus given the bug report explicitly identifies the alerting gap as the failure, but could probe upstream data quality risks more explicitly per ML engineering standards.",
+      "cost_usd": 0.00445,
+      "duration_ms": 9538
+    },
+    {
+      "test_id": "bt-11",
+      "severity_correct": true,
+      "category_correct": true,
+      "judge_score": 0.87,
+      "judge_rationale": "Reasoning directly cites specific evidence from the report (last month's outage, alert failure-to-fire) rather than generic statements; appropriately classifies a CloudWatch/ALB monitoring failure as high-severity infra issue; internal logic is sound\u2014a proven silent-failure during a real incident justifies high severity and infra category, though mentioning the root cause (wrong log group scope) would strengthen the grounding further.",
+      "cost_usd": 0.004446,
+      "duration_ms": 9141
+    },
+    {
+      "test_id": "bt-12",
+      "severity_correct": true,
+      "category_correct": true,
+      "judge_score": 0.82,
+      "judge_rationale": "The reasoning is grounded in the specific traffic metric (5 clicks/month) cited in the report and correctly identifies this as the key factor for low severity; however, 'no business consequences' slightly overstates the case\u2014a 404 on a customer-facing link is technically a broken experience, albeit one with negligible user impact, which would be more precise phrasing.",
+      "cost_usd": 0.0034409999999999996,
+      "duration_ms": 6665
+    },
+    {
+      "test_id": "bt-13",
+      "severity_correct": true,
+      "category_correct": true,
+      "judge_score": 0.89,
+      "judge_rationale": "Reasoning correctly identifies and chains specific details from the report (intermittent 503s \u2192 pool exhaustion \u2192 timeout mechanism under stated load conditions) to justify a critical severity for an active outage, with no unsupported claims or generic padding.",
+      "cost_usd": 0.0056240000000000005,
+      "duration_ms": 11775
+    },
+    {
+      "test_id": "bt-14",
+      "severity_correct": true,
+      "category_correct": true,
+      "judge_score": 0.9,
+      "judge_rationale": "The reasoning is tightly grounded in specific report details (missing multi-leg deduplication, DuckDB view, 8% revenue overstatement, dashboard impact) and logically connects to justify both high severity and data category; the 'silent' framing correctly distinguishes a logic bug from infrastructure failure, though it could have been more explicit about the join multiplicity mechanism.",
+      "cost_usd": 0.0046749999999999995,
+      "duration_ms": 10066
+    },
+    {
+      "test_id": "bt-15",
+      "severity_correct": false,
+      "category_correct": true,
+      "judge_score": 0.72,
+      "judge_rationale": "Reasoning correctly identifies intermittent timeouts tied to cold cache and re-runnable nature, but 'could mask real test failures' is unsupported since re-runs passing indicates false positives not masked failures; 'high' severity also undersupported given the re-runnable mitigation and 5% rate could justify 'medium' instead.",
+      "cost_usd": 0.004888999999999999,
+      "duration_ms": 11861
+    }
+  ]
+}

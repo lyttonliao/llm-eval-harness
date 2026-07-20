@@ -1,0 +1,147 @@
+{
+  "prompt_version": "v1_naive",
+  "model": "haiku",
+  "total_cases": 15,
+  "severity_accuracy": 0.4,
+  "category_accuracy": 0.8,
+  "fully_correct_rate": 0.3333333333333333,
+  "avg_judge_score": 0.0,
+  "total_cost_usd": 0.05961,
+  "results": [
+    {
+      "test_id": "bt-01",
+      "severity_correct": false,
+      "category_correct": true,
+      "judge_score": 0.0,
+      "judge_rationale": "judging disabled",
+      "cost_usd": 0.0043630000000000006,
+      "duration_ms": 13240
+    },
+    {
+      "test_id": "bt-02",
+      "severity_correct": true,
+      "category_correct": true,
+      "judge_score": 0.0,
+      "judge_rationale": "judging disabled",
+      "cost_usd": 0.003543,
+      "duration_ms": 6576
+    },
+    {
+      "test_id": "bt-03",
+      "severity_correct": true,
+      "category_correct": true,
+      "judge_score": 0.0,
+      "judge_rationale": "judging disabled",
+      "cost_usd": 0.004237,
+      "duration_ms": 9317
+    },
+    {
+      "test_id": "bt-04",
+      "severity_correct": true,
+      "category_correct": true,
+      "judge_score": 0.0,
+      "judge_rationale": "judging disabled",
+      "cost_usd": 0.005406,
+      "duration_ms": 15495
+    },
+    {
+      "test_id": "bt-05",
+      "severity_correct": false,
+      "category_correct": true,
+      "judge_score": 0.0,
+      "judge_rationale": "judging disabled",
+      "cost_usd": 0.003657,
+      "duration_ms": 8797
+    },
+    {
+      "test_id": "bt-06",
+      "severity_correct": false,
+      "category_correct": false,
+      "judge_score": 0.0,
+      "judge_rationale": "judging disabled",
+      "cost_usd": 0.003569,
+      "duration_ms": 6642
+    },
+    {
+      "test_id": "bt-07",
+      "severity_correct": false,
+      "category_correct": false,
+      "judge_score": 0.0,
+      "judge_rationale": "judging disabled",
+      "cost_usd": 0.005136,
+      "duration_ms": 11381
+    },
+    {
+      "test_id": "bt-08",
+      "severity_correct": true,
+      "category_correct": false,
+      "judge_score": 0.0,
+      "judge_rationale": "judging disabled",
+      "cost_usd": 0.005517,
+      "duration_ms": 11932
+    },
+    {
+      "test_id": "bt-09",
+      "severity_correct": false,
+      "category_correct": true,
+      "judge_score": 0.0,
+      "judge_rationale": "judging disabled",
+      "cost_usd": 0.003319,
+      "duration_ms": 8150
+    },
+    {
+      "test_id": "bt-10",
+      "severity_correct": false,
+      "category_correct": true,
+      "judge_score": 0.0,
+      "judge_rationale": "judging disabled",
+      "cost_usd": 0.003868,
+      "duration_ms": 8901
+    },
+    {
+      "test_id": "bt-11",
+      "severity_correct": false,
+      "category_correct": true,
+      "judge_score": 0.0,
+      "judge_rationale": "judging disabled",
+      "cost_usd": 0.0031539999999999997,
+      "duration_ms": 8557
+    },
+    {
+      "test_id": "bt-12",
+      "severity_correct": true,
+      "category_correct": true,
+      "judge_score": 0.0,
+      "judge_rationale": "judging disabled",
+      "cost_usd": 0.003344,
+      "duration_ms": 7667
+    },
+    {
+      "test_id": "bt-13",
+      "severity_correct": false,
+      "category_correct": true,
+      "judge_score": 0.0,
+      "judge_rationale": "judging disabled",
+      "cost_usd": 0.003137,
+      "duration_ms": 7386
+    },
+    {
+      "test_id": "bt-14",
+      "severity_correct": true,
+      "category_correct": true,
+      "judge_score": 0.0,
+      "judge_rationale": "judging disabled",
+      "cost_usd": 0.0034579999999999997,
+      "duration_ms": 8729
+    },
+    {
+      "test_id": "bt-15",
+      "severity_correct": false,
+      "category_correct": true,
+      "judge_score": 0.0,
+      "judge_rationale": "judging disabled",
+      "cost_usd": 0.003902,
+      "duration_ms": 8301
+    }
+  ]
+}

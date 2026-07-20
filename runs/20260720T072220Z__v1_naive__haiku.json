@@ -1,0 +1,147 @@
+{
+  "prompt_version": "v1_naive",
+  "model": "haiku",
+  "total_cases": 15,
+  "severity_accuracy": 0.6,
+  "category_accuracy": 1.0,
+  "fully_correct_rate": 0.6,
+  "avg_judge_score": 0.846,
+  "total_cost_usd": 0.060110000000000004,
+  "results": [
+    {
+      "test_id": "bt-01",
+      "severity_correct": false,
+      "category_correct": true,
+      "judge_score": 0.82,
+      "judge_rationale": "Reasoning directly grounds severity in specific symptoms (hydration mismatch + visible flash on product page) and correctly identifies the UX impact, though calling it a 'critical' page assumes business importance not stated in the report; severity high is defensible but medium could also be argued since page is functionally intact after the flash.",
+      "cost_usd": 0.004988,
+      "duration_ms": 12479
+    },
+    {
+      "test_id": "bt-02",
+      "severity_correct": true,
+      "category_correct": true,
+      "judge_score": 0.68,
+      "judge_rationale": "The reasoning correctly identifies the null 'customer' field as the root cause and the revenue impact as critical, but characterizes the failure as 'silently drops' when the bug report explicitly states the endpoint 'returns 500'\u2014a loud, explicit error, not a silent drop (Stripe would see the failed webhook attempt and retry). The model conflates the HTTP failure symptom with the eventual dropped-event consequence without distinguishing them precisely.",
+      "cost_usd": 0.0033680000000000003,
+      "duration_ms": 4903
+    },
+    {
+      "test_id": "bt-03",
+      "severity_correct": false,
+      "category_correct": true,
+      "judge_score": 0.89,
+      "judge_rationale": "The reasoning is tightly grounded in specific report details (DynamoDB state lock, cancelled CI job, unreleased lock) and traces a clear causal chain to the stated impact (blocks all deployments); the severity and category align logically with the blocking nature of the issue, though the reasoning could have been slightly stronger by acknowledging the operational lever (force-unlock procedures) that distinguishes this from a true systemic outage.",
+      "cost_usd": 0.003022,
+      "duration_ms": 5348
+    },
+    {
+      "test_id": "bt-04",
+      "severity_correct": true,
+      "category_correct": true,
+      "judge_score": 0.79,
+      "judge_rationale": "Reasoning correctly ties specific bug details (unique constraint on order_id in core fact table, scheduler double-run) to severity and category, but stops short of suggesting concrete remediation scope (e.g., whether rollback vs. reload, SLA impact quantified, which downstream tables affected) that would justify 'immediate' framing more rigorously.",
+      "cost_usd": 0.004191,
+      "duration_ms": 13038
+    },
+    {
+      "test_id": "bt-05",
+      "severity_correct": true,
+      "category_correct": true,
+      "judge_score": 0.93,
+      "judge_rationale": "Reasoning directly mirrors bug report specifics (Redux retains stale data after logout \u2192 old name flashes \u2192 resolves after fetch), with each claim grounded in stated details rather than generic; severity/category appropriate for transient UI bug in frontend state management, though one could debate whether medium vs. low severity for cosmetic flash effect.",
+      "cost_usd": 0.0035619999999999996,
+      "duration_ms": 5864
+    },
+    {
+      "test_id": "bt-06",
+      "severity_correct": true,
+      "category_correct": true,
+      "judge_score": 0.82,
+      "judge_rationale": "The reasoning correctly identifies the specific root cause (ArgoCD deploying a manifest with a renamed ConfigMap key reference) and grounds it in the reported symptom (CrashLoopBackOff), but adds two inferences not explicitly stated in the report ('Production' and 'blocking transaction processing') that, while reasonable for a checkout-service, extend beyond what's necessary to justify the critical/infra classification.",
+      "cost_usd": 0.0038090000000000003,
+      "duration_ms": 6209
+    },
+    {
+      "test_id": "bt-07",
+      "severity_correct": false,
+      "category_correct": true,
+      "judge_score": 0.92,
+      "judge_rationale": "The reasoning directly addresses the stated root cause (missing index on newly added filter column), explains the mechanism (full table scans), and grounds itself in specific report details (the 2+ second p95 latency, the recent migration, the filter column). Severity and category are well-justified. Minor: could have explicitly named the orders table for emphasis, but context makes it clear.",
+      "cost_usd": 0.0039109999999999995,
+      "duration_ms": 7490
+    },
+    {
+      "test_id": "bt-08",
+      "severity_correct": true,
+      "category_correct": true,
+      "judge_score": 0.88,
+      "judge_rationale": "Reasoning is well-grounded in specific report details (40 products, reindex cron failure), correctly identifies the data pipeline category, and justifies the severity level with the 'but not a system outage' qualifier\u2014though it doesn't explore the monitoring gap implied by 'silently failing' or consider whether this could escalate if the cron keeps missing subsequent batches.",
+      "cost_usd": 0.003892,
+      "duration_ms": 10082
+    },
+    {
+      "test_id": "bt-09",
+      "severity_correct": false,
+      "category_correct": true,
+      "judge_score": 0.85,
+      "judge_rationale": "The reasoning accurately and specifically addresses the root cause (static analysis limitation with dynamic concatenation) and correctly explains the dev/prod asymmetry described in the report; severity and category are appropriate for production styling breakage, though the reasoning is somewhat textbook without exploring Tailwind-specific mitigations like safelist or template patterns.",
+      "cost_usd": 0.004429000000000001,
+      "duration_ms": 8915
+    },
+    {
+      "test_id": "bt-10",
+      "severity_correct": true,
+      "category_correct": true,
+      "judge_score": 0.82,
+      "judge_rationale": "The reasoning directly anchors to specific details (15% precision drop on production fraud model, MLflow logging gap, one-week detection lag) and correctly identifies both the symptom (model degradation) and root cause (missing alerting infrastructure), justifying 'high' severity for a production-critical system\u2014though the caveat 'discovered before major customer harm' slightly undermines the 'high-impact' framing rather than reinforcing it.",
+      "cost_usd": 0.004943,
+      "duration_ms": 11994
+    },
+    {
+      "test_id": "bt-11",
+      "severity_correct": false,
+      "category_correct": true,
+      "judge_score": 0.9,
+      "judge_rationale": "The reasoning directly ties the specific failure mode (metric filter scoped to wrong log group) to documented real-world impact (undetected outage last month) to justify both critical severity and infra category, without relying on generic alerting truisms.",
+      "cost_usd": 0.0032790000000000002,
+      "duration_ms": 5863
+    },
+    {
+      "test_id": "bt-12",
+      "severity_correct": true,
+      "category_correct": true,
+      "judge_score": 0.82,
+      "judge_rationale": "Reasoning is grounded in the specific metric from the report (<5 clicks/month), correctly identifies the fix as trivial, and logically connects minimal impact to low severity; however, it doesn't explicitly justify why customer-facing breaks can still be low severity when usage is negligible\u2014a minor gap in the reasoning chain.",
+      "cost_usd": 0.003074,
+      "duration_ms": 6612
+    },
+    {
+      "test_id": "bt-13",
+      "severity_correct": true,
+      "category_correct": true,
+      "judge_score": 0.82,
+      "judge_rationale": "Reasoning correctly traces the specific symptoms (503s) to the root cause identified in logs (connection pool exhaustion) and justifies critical severity by linking to user-facing unavailability, though 'intermittent' under 'moderate' load could defensibly argue for 'high' rather than 'critical' depending on outage threshold definitions.",
+      "cost_usd": 0.004292,
+      "duration_ms": 8244
+    },
+    {
+      "test_id": "bt-14",
+      "severity_correct": true,
+      "category_correct": true,
+      "judge_score": 0.88,
+      "judge_rationale": "Reasoning directly maps the reported problem (missing deduplication before join) to the observed symptom (8% revenue overstatement), correctly identifies root cause (multi-leg shipment double-counting), and proposes a concrete fix direction; minor gap is not addressing deduplication strategy (which shipment to retain), though that's likely a design decision beyond triage scope.",
+      "cost_usd": 0.0042780000000000006,
+      "duration_ms": 9031
+    },
+    {
+      "test_id": "bt-15",
+      "severity_correct": false,
+      "category_correct": true,
+      "judge_score": 0.87,
+      "judge_rationale": "Reasoning is well-grounded in specific report details (5% rate, cold cache behavior, retry success pattern) and logically connects cold dependencies + tight timeout to intermittent failures; correctly categorizes as infra; severity as 'high' is defensible given developer workflow friction but slightly generous for a 5% transient issue\u2014could be 'medium' depending on absolute run frequency and team impact.",
+      "cost_usd": 0.005072,
+      "duration_ms": 13092
+    }
+  ]
+}
