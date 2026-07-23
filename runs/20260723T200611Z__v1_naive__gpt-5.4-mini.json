@@ -1,0 +1,178 @@
+{
+  "prompt_version": "v1_naive",
+  "model": "gpt-5.4-mini",
+  "provider": "codex",
+  "total_cases": 15,
+  "severity_accuracy": 0.5333333333333333,
+  "category_accuracy": 0.8666666666666667,
+  "fully_correct_rate": 0.4,
+  "avg_judge_score": 0.834,
+  "total_cost_usd": 0.0,
+  "results": [
+    {
+      "test_id": "bt-01",
+      "predicted_severity": "medium",
+      "predicted_category": "frontend",
+      "severity_correct": true,
+      "category_correct": true,
+      "judge_score": 0.88,
+      "judge_rationale": "The reasoning is well-grounded in specific report details (hydration mismatch, visible flash, React remount, page remains functional), internally coherent in distinguishing between 'broken' and 'defective-but-functional' to justify medium severity, and appropriately categorized as frontend; only minor ambiguity is whether medium vs. low (cosmetic) better characterizes a UX-degrading-but-functional issue.",
+      "cost_usd": 0.0,
+      "duration_ms": 3978
+    },
+    {
+      "test_id": "bt-02",
+      "predicted_severity": "high",
+      "predicted_category": "backend",
+      "severity_correct": false,
+      "category_correct": true,
+      "judge_score": 0.87,
+      "judge_rationale": "Reasoning is tightly grounded in specific report details (null customer field \u2192 500 error \u2192 dropped payment events) and constructs a clear causal chain connecting the trigger to business impact (payment reliability), clearly supporting both the high severity and backend category labels; minor deduction only for not explicitly explaining why null customer is critical to payment processing.",
+      "cost_usd": 0.0,
+      "duration_ms": 4011
+    },
+    {
+      "test_id": "bt-03",
+      "predicted_severity": "high",
+      "predicted_category": "infra",
+      "severity_correct": true,
+      "category_correct": true,
+      "judge_score": 0.78,
+      "judge_rationale": "The reasoning is specific and grounded in concrete details from the report (cancelled CI run, DynamoDB state lock not released, blocks subsequent applies), directly explaining the failure mode and impact; however, it remains descriptive of the symptom rather than exploring root cause (e.g., missing auto-cleanup on cancellation) or preventative measures, which slightly limits depth for a one-sentence summary.",
+      "cost_usd": 0.0,
+      "duration_ms": 4636
+    },
+    {
+      "test_id": "bt-04",
+      "predicted_severity": "medium",
+      "predicted_category": "data",
+      "severity_correct": false,
+      "category_correct": true,
+      "judge_score": 0.72,
+      "judge_rationale": "Reasoning is well-grounded in specific report details (backfill job rerunning, scheduler misconfiguration, duplicate order_id, constraint violation) and internally coherent (correctly diagnoses data integrity issue in warehouse pipeline and justifies 'data' category), but the severity choice of 'medium' lacks justification\u2014the reasoning explains *what* happened and *that* it's serious, but not *why* this merits medium rather than high or critical, making the label feel asserted rather than argued.",
+      "cost_usd": 0.0,
+      "duration_ms": 4834
+    },
+    {
+      "test_id": "bt-05",
+      "predicted_severity": "medium",
+      "predicted_category": "frontend",
+      "severity_correct": true,
+      "category_correct": true,
+      "judge_score": 0.87,
+      "judge_rationale": "The reasoning is specific and well-grounded: it correctly traces the root cause (stale Redux state post-logout) to the observable symptom (brief cross-user name flash), identifies the timing mechanism (before fetch resolves), and justifies the severity as a user-visible privacy issue without system impact; only the 'privacy bug' framing is a modest inference rather than directly stated, but it's well-supported by the cross-user data leak nature.",
+      "cost_usd": 0.0,
+      "duration_ms": 9511
+    },
+    {
+      "test_id": "bt-06",
+      "predicted_severity": "high",
+      "predicted_category": "infra",
+      "severity_correct": false,
+      "category_correct": true,
+      "judge_score": 0.87,
+      "judge_rationale": "The reasoning directly traces the causal chain from the specific bug (ArgoCD + unmigrated ConfigMap key rename) to the specific impact (CrashLoopBackOff), and both severity (high) and category (infra) follow logically from that explanation; the reasoning is grounded in concrete details from the report rather than generic failure patterns, though it's somewhat restatement-heavy rather than adding synthesis.",
+      "cost_usd": 0.0,
+      "duration_ms": 4009
+    },
+    {
+      "test_id": "bt-07",
+      "predicted_severity": "high",
+      "predicted_category": "backend",
+      "severity_correct": false,
+      "category_correct": true,
+      "judge_score": 0.88,
+      "judge_rationale": "The reasoning correctly chains every specific fact from the report\u2014recent migration, new unindexed filter column, orders table, 2+ second p95 latency\u2014into a coherent root-cause narrative without generic filler; only minor inference is calling orders a 'core backend path' (reasonable but not explicit in the report).",
+      "cost_usd": 0.0,
+      "duration_ms": 6647
+    },
+    {
+      "test_id": "bt-08",
+      "predicted_severity": "high",
+      "predicted_category": "infra",
+      "severity_correct": true,
+      "category_correct": false,
+      "judge_score": 0.8,
+      "judge_rationale": "Reasoning is well-grounded in specifics (40 products, 24-hour window, silent cron failure) and the logic genuinely supports the label chosen\u2014the model distinguishes 'significant production impact' from 'complete outage' to justify high rather than critical severity, and traces the symptom to the infra-level mechanism (cron) appropriately; minor gap is that it doesn't explore whether the impact is reversible once the cron is fixed, which could shift triage priority.",
+      "cost_usd": 0.0,
+      "duration_ms": 4957
+    },
+    {
+      "test_id": "bt-09",
+      "predicted_severity": "medium",
+      "predicted_category": "frontend",
+      "severity_correct": true,
+      "category_correct": true,
+      "judge_score": 0.83,
+      "judge_rationale": "Reasoning accurately grounds the label choice in specific report details (dynamic concatenation, Tailwind purging mechanism, multiple cards, production-only regression) and is internally coherent; the primary weakness is that it largely restates the report rather than analyzing why medium severity fits versus higher/lower severity categories.",
+      "cost_usd": 0.0,
+      "duration_ms": 4175
+    },
+    {
+      "test_id": "bt-10",
+      "predicted_severity": "high",
+      "predicted_category": "backend",
+      "severity_correct": true,
+      "category_correct": false,
+      "judge_score": 0.87,
+      "judge_rationale": "The reasoning is grounded in specific report details (15% precision drop, recent retrain, MLflow's lack of consumer) and traces a coherent causal chain (regression \u2192 undetected \u2192 silent production impact), but 'backend' conflates ML-infrastructure/monitoring with general backend and undersells the category specificity without weakening the severity argument itself.",
+      "cost_usd": 0.0,
+      "duration_ms": 4649
+    },
+    {
+      "test_id": "bt-11",
+      "predicted_severity": "high",
+      "predicted_category": "infra",
+      "severity_correct": true,
+      "category_correct": true,
+      "judge_score": 0.87,
+      "judge_rationale": "The reasoning directly maps the specific misconfiguration ('wrong log group') to measurable failure ('never fired during outage') to real impact ('on-call blind'), with each step grounded in report details; severity and category are well-justified by the production-incident consequence, though it could have been slightly more explicit about the production-criticality of the alerting mechanism itself.",
+      "cost_usd": 0.0,
+      "duration_ms": 4175
+    },
+    {
+      "test_id": "bt-12",
+      "predicted_severity": "low",
+      "predicted_category": "frontend",
+      "severity_correct": true,
+      "category_correct": true,
+      "judge_score": 0.87,
+      "judge_rationale": "The reasoning is internally coherent and grounded in specific report details (the 404 error, the exact traffic metric of <5 clicks/month), directly connecting low traffic to limited impact in a way that justifies the 'low' severity label; the 'frontend' category is slightly debatable (could be content/routing), but the reasoning itself doesn't contradict the report and isn't generic.",
+      "cost_usd": 0.0,
+      "duration_ms": 4344
+    },
+    {
+      "test_id": "bt-13",
+      "predicted_severity": "high",
+      "predicted_category": "backend",
+      "severity_correct": false,
+      "category_correct": true,
+      "judge_score": 0.83,
+      "judge_rationale": "The reasoning correctly identifies pool exhaustion as the root cause and traces the failure chain to 503s with specific evidence from the logs; however, it shifts the report's 'moderate load' to 'normal operating load,' which downplays the threshold-specific nature of the issue and weakens precision without losing logical coherence.",
+      "cost_usd": 0.0,
+      "duration_ms": 3757
+    },
+    {
+      "test_id": "bt-14",
+      "predicted_severity": "medium",
+      "predicted_category": "data",
+      "severity_correct": false,
+      "category_correct": true,
+      "judge_score": 0.82,
+      "judge_rationale": "The reasoning correctly identifies the root cause (join without dedup), the specific problem (multi-leg shipments), the component (DuckDB analytics view), and the impact (systematically inflated revenue/dashboard accuracy), all grounded in report details; the severity/category choice is well-justified by the distinction between analytics metrics being wrong vs. core functionality breaking, though that last part makes a small inferential leap beyond what the report explicitly states.",
+      "cost_usd": 0.0,
+      "duration_ms": 4354
+    },
+    {
+      "test_id": "bt-15",
+      "predicted_severity": "medium",
+      "predicted_category": "infra",
+      "severity_correct": false,
+      "category_correct": true,
+      "judge_score": 0.75,
+      "judge_rationale": "Reasoning correctly identifies the core issue (intermittent CI timeout that self-resolves) and justifies medium/infra appropriately, but omits key specifics from the report: never mentions the 'cold dependency cache' detail (which suggests a performance/timeout threshold problem, not random flakiness) or the '5% frequency' (relevant to severity quantification), making the reasoning somewhat generic\u2014it could apply to any CI flakiness without referencing what makes this one distinctive.",
+      "cost_usd": 0.0,
+      "duration_ms": 3963
+    }
+  ]
+}

@@ -1,0 +1,178 @@
+{
+  "prompt_version": "v1_naive",
+  "model": "sonnet",
+  "provider": "claude",
+  "total_cases": 15,
+  "severity_accuracy": 0.6666666666666666,
+  "category_accuracy": 1.0,
+  "fully_correct_rate": 0.6666666666666666,
+  "avg_judge_score": 0.8486666666666667,
+  "total_cost_usd": 0.423519,
+  "results": [
+    {
+      "test_id": "bt-01",
+      "predicted_severity": "medium",
+      "predicted_category": "frontend",
+      "severity_correct": true,
+      "category_correct": true,
+      "judge_score": 0.87,
+      "judge_rationale": "The reasoning is tightly grounded in the report's specific details (hydration mismatch, visible flash, React re-mount, functional page) and arrives at a defensible severity call by distinguishing visual impact from functional impact; the only minor weakness is that 'medium' severity is debatable (could credibly be 'low' if the flash is truly minor, or argued higher if it's frequent/severe UX degradation), though the reasoning itself doesn't overstate that certainty.",
+      "cost_usd": 0.028618,
+      "duration_ms": 3862
+    },
+    {
+      "test_id": "bt-02",
+      "predicted_severity": "critical",
+      "predicted_category": "backend",
+      "severity_correct": true,
+      "category_correct": true,
+      "judge_score": 0.8,
+      "judge_rationale": "The reasoning is well-grounded in specific report details (null customer field triggering 500, silent event drop, production payment risk) and flows logically to the severity/category choice, but slightly editorializes the null customer field as 'malformed' rather than sticking to the report's characterization of it as an edge case that Stripe may legitimately produce.",
+      "cost_usd": 0.028631000000000004,
+      "duration_ms": 9367
+    },
+    {
+      "test_id": "bt-03",
+      "predicted_severity": "high",
+      "predicted_category": "infra",
+      "severity_correct": true,
+      "category_correct": true,
+      "judge_score": 0.9,
+      "judge_rationale": "Reasoning is tightly grounded in report details (cancelled CI run \u2192 stale DynamoDB lock \u2192 blocked operations) with clear causal logic; severity and category both follow naturally from the block on all future Terraform operations, though the claim of manual-unlock-only requirement is inferred rather than explicitly stated in the report.",
+      "cost_usd": 0.028581000000000002,
+      "duration_ms": 3194
+    },
+    {
+      "test_id": "bt-04",
+      "predicted_severity": "high",
+      "predicted_category": "data",
+      "severity_correct": true,
+      "category_correct": true,
+      "judge_score": 0.88,
+      "judge_rationale": "Reasoning is internally coherent and grounded in specific details: correctly chains scheduler misconfiguration \u2192 duplicate rows \u2192 constraint violation on named table (orders_fct) with named column (order_id), and accurately maps that to high severity + data category; minor gap is not explicitly arguing why 'high' rather than 'medium' (e.g., core fact table's downstream blast radius), but the causal thread is sound and specific rather than generic.",
+      "cost_usd": 0.028475,
+      "duration_ms": 2549
+    },
+    {
+      "test_id": "bt-05",
+      "predicted_severity": "high",
+      "predicted_category": "frontend",
+      "severity_correct": false,
+      "category_correct": true,
+      "judge_score": 0.88,
+      "judge_rationale": "The reasoning is tightly grounded in specific report details (Redux state, logout flow, previous user's data, the brief flash symptom) and coherently traces cause to effect; it correctly pins identity-exposure as the impact justifying high severity and correctly identifies this as a frontend state-management issue, though it doesn't explicitly address why brief exposure merits 'high' rather than 'medium' severity.",
+      "cost_usd": 0.027756000000000003,
+      "duration_ms": 2231
+    },
+    {
+      "test_id": "bt-06",
+      "predicted_severity": "critical",
+      "predicted_category": "infra",
+      "severity_correct": true,
+      "category_correct": true,
+      "judge_score": 0.88,
+      "judge_rationale": "The reasoning directly traces the causal chain from the specific incident (renamed ConfigMap key + unmigrateated manifest) to the concrete operational failure (CrashLoopBackOff) to business impact, grounding each element in report details and justifying both critical severity and infra category appropriately; only minor softening ('likely') prevents higher score given the pods are definitively down.",
+      "cost_usd": 0.028833,
+      "duration_ms": 2371
+    },
+    {
+      "test_id": "bt-07",
+      "predicted_severity": "high",
+      "predicted_category": "backend",
+      "severity_correct": false,
+      "category_correct": true,
+      "judge_score": 0.82,
+      "judge_rationale": "Reasoning is tightly grounded in report specifics (orders table, filter column, no index, 2+ sec p95 latency) with sound cause-effect logic, and severity/category align well; the sole weakness is inferring 'not breaking functionality' rather than deriving it explicitly from the report, though the inference is reasonable.",
+      "cost_usd": 0.027801,
+      "duration_ms": 2214
+    },
+    {
+      "test_id": "bt-08",
+      "predicted_severity": "high",
+      "predicted_category": "data",
+      "severity_correct": true,
+      "category_correct": true,
+      "judge_score": 0.76,
+      "judge_rationale": "Reasoning is grounded in specific report details (silent cron failure, ~40 products missing in 24h, search impact) and builds a logical causal chain, but generalizes \"core user-facing feature\" without explicit report support and states the cron failure as fact despite the report saying it \"appears to be\" failing, losing some precision on uncertainty.",
+      "cost_usd": 0.027732,
+      "duration_ms": 1947
+    },
+    {
+      "test_id": "bt-09",
+      "predicted_severity": "medium",
+      "predicted_category": "frontend",
+      "severity_correct": true,
+      "category_correct": true,
+      "judge_score": 0.88,
+      "judge_rationale": "The reasoning is internally coherent and tightly grounded in report specifics: it identifies Tailwind's purge/JIT as the mechanism, directly references dynamic class construction from the report, and explains both the symptom (unstyled in prod) and dev/prod delta. Severity and category are justified, though the reasoning could be slightly more explicit about *why* concatenation defeats Tailwind's static analysis.",
+      "cost_usd": 0.027836999999999997,
+      "duration_ms": 2049
+    },
+    {
+      "test_id": "bt-10",
+      "predicted_severity": "high",
+      "predicted_category": "data",
+      "severity_correct": true,
+      "category_correct": true,
+      "judge_score": 0.8,
+      "judge_rationale": "Reasoning accurately identifies the core problem (silent precision regression), root cause (missing MLflow consumption), and business impact (fraud detection), all grounded in specific report details; severity is well-justified, but category 'data' is debatable\u2014the root cause is infrastructure/monitoring (alerting pipeline), not data quality itself, and the reasoning doesn't defend why this belongs under 'data' rather than 'monitoring.'",
+      "cost_usd": 0.028489999999999998,
+      "duration_ms": 2507
+    },
+    {
+      "test_id": "bt-11",
+      "predicted_severity": "critical",
+      "predicted_category": "infra",
+      "severity_correct": false,
+      "category_correct": true,
+      "judge_score": 0.92,
+      "judge_rationale": "Reasoning directly maps to report details (metric filter misconfiguration \u2192 silent alert failure during actual outage) and strongly justifies critical severity (on-call paging disabled during production incident) and infra category (CloudWatch/ALB alerting); not generic\u2014grounded in specific failure mode and real consequences.",
+      "cost_usd": 0.027870000000000002,
+      "duration_ms": 2029
+    },
+    {
+      "test_id": "bt-12",
+      "predicted_severity": "low",
+      "predicted_category": "frontend",
+      "severity_correct": true,
+      "category_correct": true,
+      "judge_score": 0.8,
+      "judge_rationale": "The reasoning directly grounds severity assessment in specific report details (low-traffic quantified as <5 clicks/month, explicit 404 consequence), shows coherent logic (minimal traffic + broken link \u2192 negligible impact \u2192 low severity), and defensibly justifies the category choice (frontend); minor deduction only for not elaborating why this specific issue type warrants 'frontend' over routing/infra.",
+      "cost_usd": 0.027725999999999997,
+      "duration_ms": 2181
+    },
+    {
+      "test_id": "bt-13",
+      "predicted_severity": "high",
+      "predicted_category": "backend",
+      "severity_correct": false,
+      "category_correct": true,
+      "judge_score": 0.88,
+      "judge_rationale": "The reasoning directly maps observed symptoms (intermittent 503s, connection pool exhaustion, request timeouts) to a specific root cause and correctly characterizes it as a backend scalability/resource-config defect; severity and category follow logically from production availability impact, with only minor generalization (doesn't distinguish pool-size vs. connection-leak hypotheses, but the report doesn't provide enough detail to require that specificity).",
+      "cost_usd": 0.027977999999999996,
+      "duration_ms": 2491
+    },
+    {
+      "test_id": "bt-14",
+      "predicted_severity": "high",
+      "predicted_category": "data",
+      "severity_correct": true,
+      "category_correct": true,
+      "judge_score": 0.88,
+      "judge_rationale": "The reasoning directly traces the technical failure (join fanout from undeduplicated multi-leg shipments) to its quantified business impact (8% revenue overstatement), grounding both the high-severity and data-category choices in specific details from the report; the only minor gap is no discussion of production scope or remediation complexity that might further justify the severity level.",
+      "cost_usd": 0.028562,
+      "duration_ms": 3015
+    },
+    {
+      "test_id": "bt-15",
+      "predicted_severity": "medium",
+      "predicted_category": "infra",
+      "severity_correct": false,
+      "category_correct": true,
+      "judge_score": 0.78,
+      "judge_rationale": "Reasoning accurately extracts and grounds itself in specific report details (intermittent timeout + cold cache + retry-resolves pattern), makes a defensible infra/non-functional-defect distinction supported by symptom behavior, and assigns severity consistent with 5% flakiness; however, doesn't explicitly justify why that frequency warrants 'medium' rather than 'low' (e.g., acknowledging pipeline-wide developer impact).",
+      "cost_usd": 0.028629,
+      "duration_ms": 2084
+    }
+  ]
+}

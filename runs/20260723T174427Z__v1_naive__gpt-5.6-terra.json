@@ -1,0 +1,178 @@
+{
+  "prompt_version": "v1_naive",
+  "model": "gpt-5.6-terra",
+  "provider": "codex",
+  "total_cases": 15,
+  "severity_accuracy": 0.6,
+  "category_accuracy": 0.8666666666666667,
+  "fully_correct_rate": 0.4666666666666667,
+  "avg_judge_score": 0.8466666666666666,
+  "total_cost_usd": 0.0,
+  "results": [
+    {
+      "test_id": "bt-01",
+      "predicted_severity": "medium",
+      "predicted_category": "frontend",
+      "severity_correct": true,
+      "category_correct": true,
+      "judge_score": 0.87,
+      "judge_rationale": "The reasoning is internally sound and grounded in specific report details (functional page, visible flash, UX impact), and correctly justifies the medium severity for a 'works-but-visibly-broken' frontend issue; minor deduction for not acknowledging that hydration mismatches affect only initial SSR-to-CSR transition, which a deeper triage might distinguish from full page dysfunction.",
+      "cost_usd": 0.0,
+      "duration_ms": 3839
+    },
+    {
+      "test_id": "bt-02",
+      "predicted_severity": "high",
+      "predicted_category": "backend",
+      "severity_correct": false,
+      "category_correct": true,
+      "judge_score": 0.8,
+      "judge_rationale": "The reasoning is well-grounded in specific report details (null 'customer' field, unhandled exception, payment events dropped) and logically supports both labels\u2014backend is correct, and high severity is justified given the payment-critical impact\u2014though 'silently dropping' is slightly imprecise when the endpoint returns a 500 error (visible failure mode), which the reasoning doesn't explicitly reconcile.",
+      "cost_usd": 0.0,
+      "duration_ms": 2788
+    },
+    {
+      "test_id": "bt-03",
+      "predicted_severity": "high",
+      "predicted_category": "infra",
+      "severity_correct": true,
+      "category_correct": true,
+      "judge_score": 0.78,
+      "judge_rationale": "The reasoning accurately captures the core problem (stale lock blocking deployments) and directly justifies both the high severity and infra category, but could reference the CI-cancellation root cause or DynamoDB specificity to be more grounded in the report's concrete details rather than general state-lock principles.",
+      "cost_usd": 0.0,
+      "duration_ms": 6634
+    },
+    {
+      "test_id": "bt-04",
+      "predicted_severity": "medium",
+      "predicted_category": "data",
+      "severity_correct": false,
+      "category_correct": true,
+      "judge_score": 0.87,
+      "judge_rationale": "Reasoning is well-grounded in report specifics (duplicated backfill \u2192 duplicate order_ids \u2192 test failure) and the severity/category choices follow logically from it; the caveat about 'not necessarily immediate outage' is appropriately calibrated for a data pipeline blocker rather than generic hedging.",
+      "cost_usd": 0.0,
+      "duration_ms": 2812
+    },
+    {
+      "test_id": "bt-05",
+      "predicted_severity": "medium",
+      "predicted_category": "frontend",
+      "severity_correct": true,
+      "category_correct": true,
+      "judge_score": 0.78,
+      "judge_rationale": "The reasoning correctly identifies specific details from the report (Redux stale state, name flashing, timing before fetch) and connects them logically to justify the frontend category, but doesn't explain why this warrants *medium* severity rather than high/low, making the severity choice feel partially unsupported despite likely being defensible.",
+      "cost_usd": 0.0,
+      "duration_ms": 4495
+    },
+    {
+      "test_id": "bt-06",
+      "predicted_severity": "high",
+      "predicted_category": "infra",
+      "severity_correct": false,
+      "category_correct": true,
+      "judge_score": 0.87,
+      "judge_rationale": "Reasoning correctly identifies the root cause (invalid configuration reference from renamed ConfigMap key) and links it to the concrete symptom (CrashLoopBackOff), with high/infra severity justified by complete service unavailability and infrastructure-configuration nature; minor deduction for not naming ConfigMap specifically or mentioning the migration gap, but the causal chain is sound and grounded in report details.",
+      "cost_usd": 0.0,
+      "duration_ms": 4402
+    },
+    {
+      "test_id": "bt-07",
+      "predicted_severity": "high",
+      "predicted_category": "backend",
+      "severity_correct": false,
+      "category_correct": true,
+      "judge_score": 0.9,
+      "judge_rationale": "Reasoning directly traces the root cause (unindexed filter column from recent migration) to the specific symptom (2+ sec p95 latency on orders queries) with production context implied by the p95 metric; only minor gap is that report says 'filter column added' but doesn't explicitly confirm it's used in a WHERE clause, though that inference is reasonable.",
+      "cost_usd": 0.0,
+      "duration_ms": 2939
+    },
+    {
+      "test_id": "bt-08",
+      "predicted_severity": "high",
+      "predicted_category": "infra",
+      "severity_correct": true,
+      "category_correct": false,
+      "judge_score": 0.88,
+      "judge_rationale": "The reasoning is tightly grounded in report specifics (silently failing reindex, ~40 products, 24-hour window) and coherently justifies the severity (high) by distinguishing between search functionality degradation and full service outage; only minor gap is not explicitly calling out the 24-hour timeline in the reasoning itself.",
+      "cost_usd": 0.0,
+      "duration_ms": 5682
+    },
+    {
+      "test_id": "bt-09",
+      "predicted_severity": "medium",
+      "predicted_category": "frontend",
+      "severity_correct": true,
+      "category_correct": true,
+      "judge_score": 0.88,
+      "judge_rationale": "Reasoning is tightly grounded in report specifics (dynamic string concatenation \u2192 tree-shaking miss \u2192 visual loss) and correctly scopes impact as UI-only; severity/category choices are defensible, though 'several cards unstyled' could arguably justify 'high' instead of 'medium.'",
+      "cost_usd": 0.0,
+      "duration_ms": 3230
+    },
+    {
+      "test_id": "bt-10",
+      "predicted_severity": "high",
+      "predicted_category": "infra",
+      "severity_correct": true,
+      "category_correct": false,
+      "judge_score": 0.88,
+      "judge_rationale": "Reasoning is specific and grounded (15% precision drop, MLflow logging gap, fraud-approval risk) and internally coherent\u2014severity and category both flow from the stated problem (missing alerting infrastructure for model degradation). Only minor ambiguity: whether 'infra' or 'ml' is the right triage category depends on whether the bug is 'monitoring failed to catch model drift' (infra) vs. 'model degraded unexpectedly' (ml), but the reasoning coherently supports the infra framing it chose.",
+      "cost_usd": 0.0,
+      "duration_ms": 3050
+    },
+    {
+      "test_id": "bt-11",
+      "predicted_severity": "high",
+      "predicted_category": "infra",
+      "severity_correct": true,
+      "category_correct": true,
+      "judge_score": 0.89,
+      "judge_rationale": "The reasoning directly traces the root cause (wrong log-group scope) to its specific failure mode (alarm never fires during 5xx outages) and impact (detection/response impairment), with all details grounded in the report; it avoids generic claims about misconfiguration and correctly links the mechanism to the observed behavior from last month's outage.",
+      "cost_usd": 0.0,
+      "duration_ms": 4039
+    },
+    {
+      "test_id": "bt-12",
+      "predicted_severity": "low",
+      "predicted_category": "frontend",
+      "severity_correct": true,
+      "category_correct": true,
+      "judge_score": 0.83,
+      "judge_rationale": "The reasoning correctly grounds low severity in the specific metric ('under 5 clicks/month') and connects both facts (low traffic + broken link) to justify the label, though it could be slightly more precise about whether the issue is a URL mismatch/routing problem versus generic 'navigation issue'.",
+      "cost_usd": 0.0,
+      "duration_ms": 2714
+    },
+    {
+      "test_id": "bt-13",
+      "predicted_severity": "high",
+      "predicted_category": "backend",
+      "severity_correct": false,
+      "category_correct": true,
+      "judge_score": 0.87,
+      "judge_rationale": "The reasoning directly maps specific report details (pool exhaustion, 503s, moderate load, log evidence) to a coherent diagnosis, and the severity/category choices logically follow from that diagnosis; no generic boilerplate or unsupported leaps.",
+      "cost_usd": 0.0,
+      "duration_ms": 3471
+    },
+    {
+      "test_id": "bt-14",
+      "predicted_severity": "high",
+      "predicted_category": "data",
+      "severity_correct": true,
+      "category_correct": true,
+      "judge_score": 0.8,
+      "judge_rationale": "The reasoning directly grounds 'materially incorrect' in the 8% revenue overstatement and 'does not indicate an outage or data loss' in the report's description of a join logic bug (not infrastructure failure), coherently supporting 'high' severity and 'data' category; however, it doesn't explicitly articulate why 8% reaches 'high' rather than 'medium' severity or fully connect the multi-leg deduplication issue to the overstatement mechanism.",
+      "cost_usd": 0.0,
+      "duration_ms": 3254
+    },
+    {
+      "test_id": "bt-15",
+      "predicted_severity": "medium",
+      "predicted_category": "infra",
+      "severity_correct": false,
+      "category_correct": true,
+      "judge_score": 0.8,
+      "judge_rationale": "The reasoning cites specific details from the report (intermittent timeouts, cold dependency cache, recovery via rerun) and coherently maps them to medium severity (disruptive but recoverable) and infra category, though it omits the 5% occurrence rate that would strengthen the quantitative justification for the severity level.",
+      "cost_usd": 0.0,
+      "duration_ms": 3045
+    }
+  ]
+}

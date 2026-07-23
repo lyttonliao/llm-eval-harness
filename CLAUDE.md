@@ -58,3 +58,41 @@ Always pass an explicit `--model` when benchmarking Codex.
 - `find_previous_run` in `report.py` only reconstructs aggregate metrics from saved JSON, not per-case results — fine for the diff/regression display, but don't assume `previous.results` is populated.
 - No retry/backoff on `claude -p` failures — a transient CLI error currently just records a `parse_error` on that one case rather than retrying.
 - Codex runs always report `total_cost_usd: 0.0`. No dollar-cost field exists anywhere in `codex exec`'s output (confirmed against a real authenticated call) — only `duration_ms` is real there (self-measured via `time.perf_counter()`, since Codex doesn't report that either). Don't compare `total_cost_usd` across a Claude run and a Codex run in the same report; it isn't apples to apples yet.
+
+## Router tier calibration status (`bug_triage` / `v1_naive`, as of 2026-07-23)
+
+Full judged benchmark across every model on both providers this account has
+access to — the first real cross-model quality-floor data for
+`llm-task-router/tiers.py`. Saved as individual runs in `runs/`; don't
+re-derive this table from disk without re-checking, it will drift as new
+runs get added.
+
+| provider | model | severity acc | category acc | fully correct | judge coherence |
+|---|---|---|---|---|---|
+| claude | haiku (cheap) | 60.0% | 100.0% | 60.0% | 0.85 |
+| claude | sonnet (mid) | 66.7% | 100.0% | 66.7% | 0.85 |
+| claude | opus (flagship) | 73.3% | 100.0% | 73.3% | 0.84 |
+| codex | gpt-5.4-mini | 53.3% | 86.7% | 40.0% | 0.83 |
+| codex | gpt-5.6-luna | 60.0% | 80.0% | 46.7% | 0.84 |
+| codex | gpt-5.6-terra | 60.0% | 86.7% | 46.7% | 0.85 |
+| codex | gpt-5.5 | 66.7% | 93.3% | 60.0% | 0.79 |
+
+**Verdict: no Codex model clears Claude's cheap-tier (haiku) floor on this
+suite.** Every Codex model tested is at or below haiku on category accuracy
+and fully-correct rate; `gpt-5.5` is the closest (ties haiku on severity and
+fully-correct) but still short on category accuracy and has the weakest
+judge coherence of the whole table. This is a real negative result, not a
+gap in coverage — don't add a Codex entry to `tiers.py` off this data.
+
+**Codex model access is account-dependent and was probed directly, not
+assumed** — on this ChatGPT-account login, `gpt-5.6-sol` (the flagship-
+equivalent slug), `gpt-5.3-codex`, `gpt-5.1-codex-mini`, `gpt-5.4-nano`,
+`gpt-5.4`, and `gpt-5.2` all fail with a 400 `invalid_request_error`
+("not supported when using Codex with a ChatGPT account"). A run against an
+inaccessible model produces a `parse_error` on every case and an all-zero
+`avg_judge_score` that looks like a real (terrible) score if you don't
+check the error text — that's not a quality-floor result, it's a bogus run
+and should be deleted rather than left in `runs/` (the `gpt-5.6-sol` attempt
+here was deleted for exactly this reason). Re-probe access with a single
+cheap `codex exec "..." --model <name>` call before running the full suite
+on any new model.

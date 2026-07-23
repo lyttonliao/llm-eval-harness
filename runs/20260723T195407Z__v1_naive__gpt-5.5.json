@@ -1,0 +1,178 @@
+{
+  "prompt_version": "v1_naive",
+  "model": "gpt-5.5",
+  "provider": "codex",
+  "total_cases": 15,
+  "severity_accuracy": 0.6666666666666666,
+  "category_accuracy": 0.9333333333333333,
+  "fully_correct_rate": 0.6,
+  "avg_judge_score": 0.7946666666666666,
+  "total_cost_usd": 0.0,
+  "results": [
+    {
+      "test_id": "bt-01",
+      "predicted_severity": "medium",
+      "predicted_category": "frontend",
+      "severity_correct": true,
+      "category_correct": true,
+      "judge_score": 0.78,
+      "judge_rationale": "The reasoning is well-grounded in specific report details (hydration mismatch, visible flash, page remains usable/clickable) and the logic is internally coherent\u2014UX impact + functional page justifies medium over high/low\u2014but lacks depth exploring severity boundaries (e.g., flash severity, performance impact, use-case sensitivity) that would sharpen the tier choice.",
+      "cost_usd": 0.0,
+      "duration_ms": 3058
+    },
+    {
+      "test_id": "bt-02",
+      "predicted_severity": "high",
+      "predicted_category": "backend",
+      "severity_correct": false,
+      "category_correct": true,
+      "judge_score": 0.87,
+      "judge_rationale": "Reasoning logically connects bug details (FastAPI endpoint returns 500 on valid Stripe payloads) \u2192 consequence (drops payment confirmation events) \u2192 business impact (payment state loss), justifying high severity and backend category; grounded in specific report elements (webhook crash, silent event loss) but omits the specific trigger condition (null 'customer' field) that would strengthen the explanation.",
+      "cost_usd": 0.0,
+      "duration_ms": 3530
+    },
+    {
+      "test_id": "bt-03",
+      "predicted_severity": "high",
+      "predicted_category": "infra",
+      "severity_correct": true,
+      "category_correct": true,
+      "judge_score": 0.68,
+      "judge_rationale": "The reasoning correctly identifies specific details (cancelled CI apply, stale lock, DynamoDB, requires manual cleanup) and explains the blocking impact, but there's a coherence tension: the qualifier 'does not imply active production outage or data loss by itself' undercuts the 'high' severity assignment\u2014this phrasing suggests 'medium' (deployment-blocking operational issue) rather than 'high' (which typically reserved for data/availability risk), leaving the severity-reasoning gap unjustified.",
+      "cost_usd": 0.0,
+      "duration_ms": 3512
+    },
+    {
+      "test_id": "bt-04",
+      "predicted_severity": "high",
+      "predicted_category": "data",
+      "severity_correct": true,
+      "category_correct": true,
+      "judge_score": 0.87,
+      "judge_rationale": "The reasoning directly traces specific report details (scheduler misconfiguration \u2192 backfill ran twice \u2192 duplicate order_ids \u2192 uniqueness test failure) into a coherent cause-effect chain, and both the high severity and data category are well-justified by that chain; the only minor gap is that the reasoning could distinguish whether duplicates affect active vs. historical data to better pin severity.",
+      "cost_usd": 0.0,
+      "duration_ms": 3533
+    },
+    {
+      "test_id": "bt-05",
+      "predicted_severity": "medium",
+      "predicted_category": "frontend",
+      "severity_correct": true,
+      "category_correct": true,
+      "judge_score": 0.78,
+      "judge_rationale": "The reasoning correctly identifies this as a frontend state-management issue (Redux) and specifically grounds the medium severity in the transient/client-side-only nature of the stale-data flash, contrasting it against persistent breaches\u2014logically sound and well-supported by the report details. However, the reasoning somewhat underweights privacy/trust concerns (especially on shared devices) that could defensibly justify 'high' severity, making the medium call conservative but not unreasonable.",
+      "cost_usd": 0.0,
+      "duration_ms": 3323
+    },
+    {
+      "test_id": "bt-06",
+      "predicted_severity": "high",
+      "predicted_category": "infra",
+      "severity_correct": false,
+      "category_correct": true,
+      "judge_score": 0.6,
+      "judge_rationale": "The reasoning is internally coherent and identifies the core issue (manifest+pods+crash+ArgoCD), but treats it generically as 'bad deployment manifest' rather than grounding in the specific root cause (ConfigMap key renamed without migration); it also infers checkout-service is 'core' without explicit support and doesn't articulate why this warrants 'high' severity (e.g., current outage vs. fixable config issue).",
+      "cost_usd": 0.0,
+      "duration_ms": 3448
+    },
+    {
+      "test_id": "bt-07",
+      "predicted_severity": "high",
+      "predicted_category": "backend",
+      "severity_correct": false,
+      "category_correct": true,
+      "judge_score": 0.78,
+      "judge_rationale": "The reasoning correctly identifies specific details (missing index, p95, latency regression) and grounds the backend category well, but doesn't explain why 2-second order query latency merits 'high' rather than 'medium' severity\u2014it describes the problem accurately without justifying the severity threshold chosen.",
+      "cost_usd": 0.0,
+      "duration_ms": 3488
+    },
+    {
+      "test_id": "bt-08",
+      "predicted_severity": "high",
+      "predicted_category": "infra",
+      "severity_correct": true,
+      "category_correct": false,
+      "judge_score": 0.78,
+      "judge_rationale": "Reasoning is well-grounded in specific report details (silent cron failure, ~40 products, 24-hour window, user-facing search impact) and internally coherent with severity choice (meaningful impact but not total outage justifies 'high'); however, the 'infra' category is implied rather than explicitly justified\u2014a stronger reasoning would state why a cron job failure maps to infrastructure vs. data-pipeline or search-ops.",
+      "cost_usd": 0.0,
+      "duration_ms": 6493
+    },
+    {
+      "test_id": "bt-09",
+      "predicted_severity": "medium",
+      "predicted_category": "frontend",
+      "severity_correct": true,
+      "category_correct": true,
+      "judge_score": 0.78,
+      "judge_rationale": "Reasoning is grounded in specific report details (production-only styling loss, visible UI cards) and logically supports both labels via process-of-elimination (not critical/data/security impact \u2192 medium severity; CSS/rendering issue \u2192 frontend), but lacks justification for why 'medium' rather than 'low' (cosmetic) or 'high' (if cards are completely unusable) given only the visual impact stated.",
+      "cost_usd": 0.0,
+      "duration_ms": 3188
+    },
+    {
+      "test_id": "bt-10",
+      "predicted_severity": "high",
+      "predicted_category": "data",
+      "severity_correct": true,
+      "category_correct": true,
+      "judge_score": 0.78,
+      "judge_rationale": "The reasoning is internally coherent and grounded in specific report details (15% precision drop, MLflow logging, no alert consumer), but the 'data' category choice doesn't follow naturally from the stated reasoning\u2014the reasoning emphasizes an infrastructure/alerting gap rather than data quality, so 'ops' or 'monitoring' would have been better justified.",
+      "cost_usd": 0.0,
+      "duration_ms": 4737
+    },
+    {
+      "test_id": "bt-11",
+      "predicted_severity": "high",
+      "predicted_category": "infra",
+      "severity_correct": true,
+      "category_correct": true,
+      "judge_score": 0.82,
+      "judge_rationale": "The reasoning is internally coherent and grounded: it correctly identifies the misconfiguration, traces it to failed paging during the actual outage, and distinguishes incident-response risk from direct service failure\u2014a nuanced judgment that supports the high/infra label, though it could be slightly more explicit about the log-group scoping error itself.",
+      "cost_usd": 0.0,
+      "duration_ms": 4162
+    },
+    {
+      "test_id": "bt-12",
+      "predicted_severity": "low",
+      "predicted_category": "frontend",
+      "severity_correct": true,
+      "category_correct": true,
+      "judge_score": 0.87,
+      "judge_rationale": "The reasoning directly grounds 'low-impact' and 'minimal user traffic' in the report's specific facts (footer link, <5 clicks/month), and correctly infers no core-product impact for a marketing link; the severity and category labels follow logically from those details with only a minor gap (doesn't explicitly state why 'frontend' vs. e.g. 'marketing-site' if that were an option).",
+      "cost_usd": 0.0,
+      "duration_ms": 3229
+    },
+    {
+      "test_id": "bt-13",
+      "predicted_severity": "high",
+      "predicted_category": "backend",
+      "severity_correct": false,
+      "category_correct": true,
+      "judge_score": 0.9,
+      "judge_rationale": "The reasoning traces a clear causal chain grounded in specific report details (intermittent 503s \u2192 symptom, moderate load \u2192 context, connection pool exhausted \u2192 root cause, user-facing availability \u2192 impact), and the high/backend labels logically follow from that analysis; minor gap is that precision on whether 'moderate load' making the system fail warrants 'critical' rather than 'high' severity, but the choice is defensible and well-justified.",
+      "cost_usd": 0.0,
+      "duration_ms": 3960
+    },
+    {
+      "test_id": "bt-14",
+      "predicted_severity": "high",
+      "predicted_category": "data",
+      "severity_correct": true,
+      "category_correct": true,
+      "judge_score": 0.81,
+      "judge_rationale": "Reasoning accurately identifies the specific technical issue (multi-leg deduplication failure causing row duplication in joins) and correctly characterizes its impact (material corruption of a named business metric\u2014revenue\u2014with quantifiable scope). The severity and category choices follow logically: 8% overstatement of a key BI metric justifies 'high' severity for an analytics context, and the problem is plainly a data transformation/view logic issue warranting 'data' category. Minor deduction: the reasoning could have explicitly cited the ~8% figure rather than implying it via 'materially,' and could more explicitly justify why 'data' vs. adjacent categories like 'BI/reporting.'",
+      "cost_usd": 0.0,
+      "duration_ms": 4108
+    },
+    {
+      "test_id": "bt-15",
+      "predicted_severity": "medium",
+      "predicted_category": "infra",
+      "severity_correct": false,
+      "category_correct": true,
+      "judge_score": 0.82,
+      "judge_rationale": "Reasoning is specific and well-grounded: correctly extracts intermittency (5%), CI scope, cold-cache trigger, and rerun workaround from the report, then coherently chains them to justify moderate+infra labels; minor weakness is that 'moderate operational impact' is somewhat inferential (5% CI flake could defensibly be 'low' severity depending on team tolerance) and doesn't acknowledge severity ambiguity.",
+      "cost_usd": 0.0,
+      "duration_ms": 3749
+    }
+  ]
+}
