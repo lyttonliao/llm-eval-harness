@@ -1,0 +1,126 @@
+{
+  "prompt_version": "code_gen_v1",
+  "model": "haiku",
+  "provider": "claude",
+  "total_cases": 8,
+  "check_accuracies": {
+    "tests_passed": 1.0
+  },
+  "fully_correct_rate": 1.0,
+  "avg_judge_score": 0.9075,
+  "total_cost_usd": 0.128193,
+  "results": [
+    {
+      "test_id": "cg-01",
+      "predicted": {
+        "reasoning": "Use nested min/max to clamp value between lo and hi: min(value, hi) caps the upper bound, then max(..., lo) ensures the lower bound.",
+        "code": "def clamp(value, lo, hi):\n    return max(lo, min(value, hi))"
+      },
+      "checks": {
+        "tests_passed": true
+      },
+      "judge_score": 0.94,
+      "judge_rationale": "The reasoning directly explains both operations and their order: min(value, hi) caps the upper bound, then max(lo, ...) ensures the lower bound\u2014this precisely justifies the nested call structure and is grounded in how the code actually achieves clamping across all three input ranges.",
+      "cost_usd": 0.012064,
+      "duration_ms": 3781
+    },
+    {
+      "test_id": "cg-02",
+      "predicted": {
+        "reasoning": "Filter the string to alphanumeric characters only (using isalnum()), lowercase it, then compare against its reverse.",
+        "code": "def is_palindrome(s):\n    cleaned = ''.join(char for char in s.lower() if char.isalnum())\n    return cleaned == cleaned[::-1]"
+      },
+      "checks": {
+        "tests_passed": true
+      },
+      "judge_score": 0.93,
+      "judge_rationale": "The reasoning is specific (names `isalnum()` by method), grounded in the exact task requirements (lowercase + filter alphanumerics + palindrome check), internally coherent (each step follows logically), and the code implements it correctly; minor imprecision is the reasoning's phrasing on order ('Filter... lowercase') versus code's execution (lowercase then filter in the comprehension), but the order is operationally irrelevant here.",
+      "cost_usd": 0.012972000000000001,
+      "duration_ms": 4818
+    },
+    {
+      "test_id": "cg-03",
+      "predicted": {
+        "reasoning": "Check for empty list first, return None; otherwise calculate mean using sum divided by length, which naturally returns a float in Python 3.",
+        "code": "def average(nums):\n    if not nums:\n        return None\n    return sum(nums) / len(nums)"
+      },
+      "checks": {
+        "tests_passed": true
+      },
+      "judge_score": 0.92,
+      "judge_rationale": "The reasoning directly maps to the code structure (empty-list guard, sum/length division) and correctly identifies the Python 3 behavior that makes `/` return a float; it's specific to the task's constraints (no exception on empty, float return) rather than generic.",
+      "cost_usd": 0.011919999999999998,
+      "duration_ms": 3342
+    },
+    {
+      "test_id": "cg-04",
+      "predicted": {
+        "reasoning": "Apply Gregorian leap year rules in order of precedence: divisible by 400 always leaps, divisible by 100 never leaps (except those 400), divisible by 4 leaps.",
+        "code": "def is_leap_year(year: int) -> bool:\n    return year % 400 == 0 or (year % 4 == 0 and year % 100 != 0)"
+      },
+      "checks": {
+        "tests_passed": true
+      },
+      "judge_score": 0.82,
+      "judge_rationale": "The reasoning is grounded in specific task details (Gregorian rules, divisibility by 400/100/4) and correctly captures the precedence structure, mapping directly to a correct implementation; the phrasing '(except those 400)' is somewhat awkward and circular, and the reasoning doesn't explicitly clarify that 'divisible by 4' implicitly means 'not divisible by 100' (though the code correctly implements this).",
+      "cost_usd": 0.012838,
+      "duration_ms": 4695
+    },
+    {
+      "test_id": "cg-05",
+      "predicted": {
+        "reasoning": "Check if divisor is zero before performing division; raise ValueError with the specified message if so, otherwise return the quotient.",
+        "code": "def safe_divide(a, b):\n    if b == 0:\n        raise ValueError('division by zero')\n    return a / b"
+      },
+      "checks": {
+        "tests_passed": true
+      },
+      "judge_score": 0.92,
+      "judge_rationale": "The reasoning is internally coherent and explicitly maps to all task requirements: it identifies the check (divisor zero), the error handling (raise ValueError with specified message), and the success path (return quotient), and the code faithfully implements this sequence\u2014only minor gap is referring to 'divisor' rather than naming the parameter explicitly.",
+      "cost_usd": 0.012321,
+      "duration_ms": 3612
+    },
+    {
+      "test_id": "cg-06",
+      "predicted": {
+        "reasoning": "Recursively iterate through elements, extending the result list with flattened sublists or appending integers directly.",
+        "code": "def flatten(nested):\n    result = []\n    for item in nested:\n        if isinstance(item, list):\n            result.extend(flatten(item))\n        else:\n            result.append(item)\n    return result"
+      },
+      "checks": {
+        "tests_passed": true
+      },
+      "judge_score": 0.88,
+      "judge_rationale": "The reasoning accurately describes the algorithm's key operations\u2014recursive calls, extending for lists, appending for non-lists\u2014and maps directly to the implementation structure, but omits mention of the `isinstance` type check and implicit assumption that non-list items are valid (integers) to append.",
+      "cost_usd": 0.014182,
+      "duration_ms": 7151
+    },
+    {
+      "test_id": "cg-07",
+      "predicted": {
+        "reasoning": "Remove all punctuation, convert to lowercase, count word frequencies, then iterate through cleaned words in order to return the first one with the maximum count.",
+        "code": "import string\n\ndef most_common_word(text):\n    # Convert to lowercase\n    text = text.lower()\n    \n    # Remove all punctuation\n    translator = str.maketrans('', '', string.punctuation)\n    text = text.translate(translator)\n    \n    # Split into words\n    cleaned_words = text.split()\n    \n    if not cleaned_words:\n        return \"\"\n    \n    # Count occurrences\n    word_counts = {}\n    for word in cleaned_words:\n        word_counts[word] = word_counts.get(word, 0) + 1\n    \n    # Find the maximum count\n    max_count = max(word_counts.values())\n    \n    # Return the first word (in text order) with max count\n    for word in cleaned_words:\n        if word_counts[word] == max_count:\n            return word"
+      },
+      "checks": {
+        "tests_passed": true
+      },
+      "judge_score": 0.93,
+      "judge_rationale": "The reasoning directly maps to the code's implementation and explicitly addresses each task requirement (punctuation removal, case-insensitivity, frequency counting, first-occurrence tie-breaking), with no gap between what's stated and what the code does; the only minor deduction is the reasoning could have been more explicit about preserving text order through the cleaned words iteration to justify the tie-breaking claim, but the implementation correctly handles this.",
+      "cost_usd": 0.03614,
+      "duration_ms": 43136
+    },
+    {
+      "test_id": "cg-08",
+      "predicted": {
+        "reasoning": "Use regex to find all number+unit pairs in the string, multiply each by its time multiplier (h\u21923600s, m\u219260s, s\u21921s), and sum them up.",
+        "code": "import re\n\ndef parse_duration(s):\n    \"\"\"Parse a duration string and return total seconds as an int.\n    \n    Accepts strings like '1h30m', '2h', '45s', '1h30m15s' with optional\n    hour, minute, and second components in that order.\n    \"\"\"\n    multipliers = {'h': 3600, 'm': 60, 's': 1}\n    total = 0\n    \n    for match in re.finditer(r'(\\d+)([hms])', s):\n        value = int(match.group(1))\n        unit = match.group(2)\n        total += value * multipliers[unit]\n    \n    return total"
+      },
+      "checks": {
+        "tests_passed": true
+      },
+      "judge_score": 0.92,
+      "judge_rationale": "The reasoning is specific to the problem (names all three units with exact multiplier values), grounded in the actual implementation (regex pattern strategy, dict lookup), and internally coherent \u2014 someone could build the solution from this description. The code correctly implements what was stated and handles all specified cases ('1h30m' \u2192 5400, '45s' \u2192 45, etc.). Only minor deduction because a one-sentence reasoning is necessarily terse and doesn't elaborate on edge cases like empty strings, but the task doesn't require handling those explicitly.",
+      "cost_usd": 0.015756,
+      "duration_ms": 11133
+    }
+  ]
+}

@@ -105,3 +105,37 @@ and should be deleted rather than left in `runs/` (the `gpt-5.6-sol` attempt
 here was deleted for exactly this reason). Re-probe access with a single
 cheap `codex exec "..." --model <name>` call before running the full suite
 on any new model.
+
+## Router tier calibration status (`code_gen` / `code_gen_v1`, as of 2026-07-23)
+
+Judged benchmark across the same 7 models as the `bug_triage` table above,
+run right after `code_gen` was added.
+
+| provider | model | tests_passed | fully correct | judge coherence |
+|---|---|---|---|---|
+| claude | haiku (cheap) | 100.0% | 100.0% | 0.91 |
+| claude | sonnet (mid) | 100.0% | 100.0% | 0.78 |
+| claude | opus (flagship) | 100.0% | 100.0% | 0.82 |
+| codex | gpt-5.4-mini | 100.0% | 100.0% | 0.82 |
+| codex | gpt-5.6-luna | 87.5% | 87.5% | 0.90 |
+| codex | gpt-5.6-terra | 100.0% | 100.0% | 0.88 |
+| codex | gpt-5.5 | 87.5% | 87.5% | 0.81 |
+
+**Verdict: this suite doesn't have enough discriminating power yet to make
+a tier call - don't add or change any `tiers.py` entry off this table.** 5
+of 7 models score 100% on 8 cases; the only two misses (`gpt-5.6-luna`,
+`gpt-5.5`) both landed on the exact same case (`cg-07`, the tie-break case)
+and for two unrelated real bugs, not a shared weakness:
+`gpt-5.6-luna` double-escaped a backslash in its JSON response (emitted
+`\\\\W` where `\\W` was needed, corrupting a regex's `\W` shorthand into a
+literal-character exclusion instead of "non-word-character"), while
+`gpt-5.5` implemented the tie-break with `if count > best_count` (strict
+inequality), which never lets a later word overtake an earlier one on a
+tie even though the spec calls for first-occurrence-wins. Confirmed both
+are real generated-code defects (not harness/grading bugs) by re-running
+each verbatim `predicted["code"]` from the saved run file through
+`sandbox.run_pytest_check` directly. With only 1 of 8 cases producing any
+variance across 7 models, this table says more about the suite (too small
+and too easy at n=8) than about the models - the fix is a bigger, harder
+`code_gen.jsonl`, not a router change. Stopping here deliberately rather
+than shipping a tier decision off underpowered data.

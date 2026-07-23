@@ -1,0 +1,126 @@
+{
+  "prompt_version": "code_gen_v1",
+  "model": "opus",
+  "provider": "claude",
+  "total_cases": 8,
+  "check_accuracies": {
+    "tests_passed": 1.0
+  },
+  "fully_correct_rate": 1.0,
+  "avg_judge_score": 0.825,
+  "total_cost_usd": 0.5655129999999999,
+  "results": [
+    {
+      "test_id": "cg-01",
+      "predicted": {
+        "reasoning": "Return value bounded by lo and hi using min/max composition.",
+        "code": "def clamp(value, lo, hi):\n    if value < lo:\n        return lo\n    if value > hi:\n        return hi\n    return value\n"
+      },
+      "checks": {
+        "tests_passed": true
+      },
+      "judge_score": 0.4,
+      "judge_rationale": "The reasoning claims a min/max composition approach but the implementation uses explicit if-statements\u2014a different algorithm that works correctly but isn't justified by the stated reasoning, making the reasoning unsupported by the code provided.",
+      "cost_usd": 0.069432,
+      "duration_ms": 2825
+    },
+    {
+      "test_id": "cg-02",
+      "predicted": {
+        "reasoning": "Filter to alphanumeric characters, lowercase, and compare against its reverse.",
+        "code": "def is_palindrome(s):\n    filtered = [c.lower() for c in s if c.isalnum()]\n    return filtered == filtered[::-1]\n"
+      },
+      "checks": {
+        "tests_passed": true
+      },
+      "judge_score": 0.93,
+      "judge_rationale": "The reasoning accurately describes all three key requirements from the task (alphanumeric filtering via `isalnum()`, lowercasing via `lower()`, and reverse comparison for palindrome detection), and the code faithfully implements each step mentioned\u2014this is terse but specific and directly grounded in task details rather than generic.",
+      "cost_usd": 0.069553,
+      "duration_ms": 2372
+    },
+    {
+      "test_id": "cg-03",
+      "predicted": {
+        "reasoning": "Return the mean as a float, guarding against an empty list by returning None.",
+        "code": "def average(nums):\n    if not nums:\n        return None\n    return sum(nums) / len(nums)\n"
+      },
+      "checks": {
+        "tests_passed": true
+      },
+      "judge_score": 0.95,
+      "judge_rationale": "The reasoning is internally coherent, specifically grounded in task details ('mean as a float' references the output type requirement, 'guarding against an empty list by returning None' directly addresses both the empty-case handling and the no-exception requirement), and the stated approach actually justifies the code\u2014this isn't generic or hand-wavy, it's tailored to the specific constraints given.",
+      "cost_usd": 0.068929,
+      "duration_ms": 2189
+    },
+    {
+      "test_id": "cg-04",
+      "predicted": {
+        "reasoning": "Apply Gregorian leap year rule: divisible by 4 and (not by 100 or by 400).",
+        "code": "def is_leap_year(year):\n    return year % 4 == 0 and (year % 100 != 0 or year % 400 == 0)"
+      },
+      "checks": {
+        "tests_passed": true
+      },
+      "judge_score": 0.92,
+      "judge_rationale": "Reasoning directly and correctly maps Gregorian rules to the logical condition implemented; slight phrasing informality ('not by 100 or by 400' vs 'not divisible by 100 or divisible by 400') is minor and doesn't obscure the coherent logic.",
+      "cost_usd": 0.06959,
+      "duration_ms": 2522
+    },
+    {
+      "test_id": "cg-05",
+      "predicted": {
+        "reasoning": "Guard against b == 0 by raising ValueError, otherwise return the quotient.",
+        "code": "def safe_divide(a, b):\n    if b == 0:\n        raise ValueError('division by zero')\n    return a / b\n"
+      },
+      "checks": {
+        "tests_passed": true
+      },
+      "judge_score": 0.95,
+      "judge_rationale": "The reasoning directly maps to specific task requirements (guard b==0 \u2192 raise ValueError, else return quotient) and the code implementation faithfully executes that stated logic with the correct error message, leaving nothing unjustified.",
+      "cost_usd": 0.069376,
+      "duration_ms": 2530
+    },
+    {
+      "test_id": "cg-06",
+      "predicted": {
+        "reasoning": "Recursively iterate, extending the result with flattened sublists and appending non-list elements.",
+        "code": "def flatten(nested):\n    result = []\n    for item in nested:\n        if isinstance(item, list):\n            result.extend(flatten(item))\n        else:\n            result.append(item)\n    return result\n"
+      },
+      "checks": {
+        "tests_passed": true
+      },
+      "judge_score": 0.85,
+      "judge_rationale": "The reasoning accurately describes the algorithm's core logic (recursive descent with extend/append dispatch) and maps directly to the code structure; it addresses the nested-list and element-collection requirements but doesn't explicitly ground how recursion ensures arbitrary depth or how sequential iteration preserves left-to-right order, leaving minor conceptual steps implicit.",
+      "cost_usd": 0.069988,
+      "duration_ms": 2820
+    },
+    {
+      "test_id": "cg-07",
+      "predicted": {
+        "reasoning": "Extract lowercase alphanumeric words via regex, count them, then return the word with the highest count breaking ties by earliest first appearance.",
+        "code": "import re\nfrom collections import Counter\n\n\ndef most_common_word(text):\n    words = re.findall(r\"[a-z0-9']+\", text.lower())\n    if not words:\n        return None\n    counts = Counter(words)\n    max_count = max(counts.values())\n    for word in words:\n        if counts[word] == max_count:\n            return word\n"
+      },
+      "checks": {
+        "tests_passed": true
+      },
+      "judge_score": 0.72,
+      "judge_rationale": "The reasoning accurately describes the general approach (extract, count, return highest with tie-breaking by first appearance) and the tie-breaking logic is correctly implemented via the original-order iteration; however, the reasoning claims 'alphanumeric words' but the regex pattern `[a-z0-9\\']+` also includes apostrophes, creating a notable gap between the stated approach and actual implementation that isn't acknowledged or justified.",
+      "cost_usd": 0.07363399999999999,
+      "duration_ms": 4328
+    },
+    {
+      "test_id": "cg-08",
+      "predicted": {
+        "reasoning": "Use a single anchored regex with optional h/m/s groups to enforce order and validity, then sum the components in seconds.",
+        "code": "import re\n\n_DURATION_RE = re.compile(r'^(?:(\\d+)h)?(?:(\\d+)m)?(?:(\\d+)s)?$')\n\n\ndef parse_duration(s):\n    match = _DURATION_RE.match(s)\n    if match is None or not any(match.groups()):\n        raise ValueError(f'invalid duration string: {s!r}')\n    hours, minutes, seconds = (int(g) if g is not None else 0 for g in match.groups())\n    return hours * 3600 + minutes * 60 + seconds\n"
+      },
+      "checks": {
+        "tests_passed": true
+      },
+      "judge_score": 0.88,
+      "judge_rationale": "The reasoning directly maps to the implementation: the regex pattern `^(?:(\\d+)h)?(?:(\\d+)m)?(?:(\\d+)s)?$` does use anchors and optional groups with h/m/s order, and the code correctly sums `hours*3600 + minutes*60 + seconds`. The reasoning is specific to the regex-based approach rather than generic, though it doesn't explicitly mention the `any(match.groups())` empty-string validation check.",
+      "cost_usd": 0.075011,
+      "duration_ms": 5134
+    }
+  ]
+}

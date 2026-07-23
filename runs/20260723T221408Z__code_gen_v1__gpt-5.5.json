@@ -1,0 +1,126 @@
+{
+  "prompt_version": "code_gen_v1",
+  "model": "gpt-5.5",
+  "provider": "codex",
+  "total_cases": 8,
+  "check_accuracies": {
+    "tests_passed": 0.875
+  },
+  "fully_correct_rate": 0.875,
+  "avg_judge_score": 0.81125,
+  "total_cost_usd": 0.0,
+  "results": [
+    {
+      "test_id": "cg-01",
+      "predicted": {
+        "reasoning": "Use simple comparisons against the inclusive lower and upper bounds and return the nearest bound only when the value falls outside them.",
+        "code": "def clamp(value, lo, hi):\n    if value < lo:\n        return lo\n    if value > hi:\n        return hi\n    return value\n"
+      },
+      "checks": {
+        "tests_passed": true
+      },
+      "judge_score": 0.9,
+      "judge_rationale": "The reasoning directly maps to task requirements (inclusive bounds, nearest-bound returns when outside range) and correctly justifies the three-case implementation, though it could have been marginally more explicit about the 'otherwise unchanged' case.",
+      "cost_usd": 0.0,
+      "duration_ms": 3951
+    },
+    {
+      "test_id": "cg-02",
+      "predicted": {
+        "reasoning": "Normalize the input by keeping only alphanumeric characters in lowercase, then compare it with its reverse.",
+        "code": "def is_palindrome(s):\n    normalized = ''.join(ch.lower() for ch in s if ch.isalnum())\n    return normalized == normalized[::-1]\n"
+      },
+      "checks": {
+        "tests_passed": true
+      },
+      "judge_score": 0.94,
+      "judge_rationale": "The reasoning directly maps each task requirement (lowercase, filter to alphanumeric, check palindrome) to a corresponding implementation step, and the code faithfully executes that plan with no gaps or unsupported claims.",
+      "cost_usd": 0.0,
+      "duration_ms": 3756
+    },
+    {
+      "test_id": "cg-03",
+      "predicted": {
+        "reasoning": "Compute the sum divided by the count when the list has values, otherwise return None.",
+        "code": "def average(nums):\n    if not nums:\n        return None\n    return float(sum(nums) / len(nums))\n"
+      },
+      "checks": {
+        "tests_passed": true
+      },
+      "judge_score": 0.9,
+      "judge_rationale": "The reasoning is terse but specific to the task: it directly describes the mean-calculation algorithm (sum/count), explicitly addresses the empty-list edge case (return None), and maps cleanly to the code provided; minor deduction only for not explicitly mentioning the float type conversion or exception-prevention, though both are present in the implementation.",
+      "cost_usd": 0.0,
+      "duration_ms": 3962
+    },
+    {
+      "test_id": "cg-04",
+      "predicted": {
+        "reasoning": "Apply the Gregorian divisibility rules directly with modulo checks.",
+        "code": "def is_leap_year(year):\n    return year % 4 == 0 and (year % 100 != 0 or year % 400 == 0)\n"
+      },
+      "checks": {
+        "tests_passed": true
+      },
+      "judge_score": 0.72,
+      "judge_rationale": "The reasoning references task-specific concepts (Gregorian divisibility rules, modulo checks) and describes a valid approach that produces the correct answer, but doesn't explain how the boolean subexpression `(year % 100 != 0 or year % 400 == 0)` specifically encodes the century-year exception and 400-year override, leaving the connection between stated approach and actual implementation implicit rather than justified.",
+      "cost_usd": 0.0,
+      "duration_ms": 3669
+    },
+    {
+      "test_id": "cg-05",
+      "predicted": {
+        "reasoning": "Check the divisor before performing division so zero consistently raises the specified ValueError.",
+        "code": "def safe_divide(a, b):\n    if b == 0:\n        raise ValueError('division by zero')\n    return a / b\n"
+      },
+      "checks": {
+        "tests_passed": true
+      },
+      "judge_score": 0.88,
+      "judge_rationale": "The reasoning directly grounds itself in the task's specific requirements (checking the divisor before division, raising ValueError with the specified message) and coherently explains why the implementation strategy works, rather than offering generic error-handling advice.",
+      "cost_usd": 0.0,
+      "duration_ms": 3939
+    },
+    {
+      "test_id": "cg-06",
+      "predicted": {
+        "reasoning": "Use a recursive depth-first traversal to preserve left-to-right order while collecting integers into one list.",
+        "code": "def flatten(nested):\n    result = []\n\n    for item in nested:\n        if isinstance(item, list):\n            result.extend(flatten(item))\n        else:\n            result.append(item)\n\n    return result\n"
+      },
+      "checks": {
+        "tests_passed": true
+      },
+      "judge_score": 0.87,
+      "judge_rationale": "The reasoning directly justifies the code: recursion handles arbitrarily-deep nesting, left-to-right iteration with sequential append/extend preserves order, and the non-list/list type check implements the collection strategy; the explanation is specific to the task requirements rather than generic, though it could be tighter by naming the extend-vs-append pattern explicitly.",
+      "cost_usd": 0.0,
+      "duration_ms": 4437
+    },
+    {
+      "test_id": "cg-07",
+      "predicted": {
+        "reasoning": "I parse case-folded word tokens while treating punctuation as separators, then track counts without replacing the current best on ties so the earliest tied word is returned.",
+        "code": "import re\nfrom collections import defaultdict\n\n\ndef most_common_word(text):\n    counts = defaultdict(int)\n    best_word = None\n    best_count = 0\n\n    for word in re.findall(r\"[A-Za-z0-9]+\", text.casefold()):\n        counts[word] += 1\n        if counts[word] > best_count:\n            best_word = word\n            best_count = counts[word]\n\n    return best_word\n"
+      },
+      "checks": {
+        "tests_passed": false
+      },
+      "judge_score": 0.4,
+      "judge_rationale": "The reasoning is internally consistent (case-folding, punctuation stripping, no-replacement-on-ties), but it fails to ground correctly in the task: the code returns whichever word first *reaches* the max count during iteration, not whichever word appears first in the text among those tied for that count\u2014these differ when a later-appearing word reaches a high count before an earlier one does. For example, in 'apple banana cherry banana apple cherry', apple and banana both reach count 2, but the code updates best_word when it processes banana's count-2 (position 3) before apple's count-2 (position 4), returning 'banana' instead of the required 'apple'.",
+      "cost_usd": 0.0,
+      "duration_ms": 10254
+    },
+    {
+      "test_id": "cg-08",
+      "predicted": {
+        "reasoning": "Use a full regular-expression match for optional h, m, and s groups in order, then sum the captured integer components with second multipliers.",
+        "code": "import re\n\n\ndef parse_duration(s):\n    match = re.fullmatch(r\"(?:(\\d+)h)?(?:(\\d+)m)?(?:(\\d+)s)?\", s)\n    if match is None or not any(match.groups()):\n        raise ValueError(\"invalid duration\")\n\n    hours, minutes, seconds = (int(value) if value is not None else 0 for value in match.groups())\n    return hours * 3600 + minutes * 60 + seconds\n"
+      },
+      "checks": {
+        "tests_passed": true
+      },
+      "judge_score": 0.88,
+      "judge_rationale": "The reasoning accurately describes the implementation (fullmatch with optional groups in h-m-s order, summing with conversion multipliers) and is grounded in task-specific details (component ordering, second-based return value), though 'second multipliers' is slightly ambiguous phrasing for 'time conversion multipliers'; the code itself is correct and handles empty strings, missing components, and valid examples.",
+      "cost_usd": 0.0,
+      "duration_ms": 6690
+    }
+  ]
+}

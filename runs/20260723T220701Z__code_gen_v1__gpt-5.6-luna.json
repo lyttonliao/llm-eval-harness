@@ -1,0 +1,126 @@
+{
+  "prompt_version": "code_gen_v1",
+  "model": "gpt-5.6-luna",
+  "provider": "codex",
+  "total_cases": 8,
+  "check_accuracies": {
+    "tests_passed": 0.875
+  },
+  "fully_correct_rate": 0.875,
+  "avg_judge_score": 0.89625,
+  "total_cost_usd": 0.0,
+  "results": [
+    {
+      "test_id": "cg-01",
+      "predicted": {
+        "reasoning": "Use nested comparisons to return the nearest boundary when the value falls outside the closed range.",
+        "code": "def clamp(value, lo, hi):\n    if value < lo:\n        return lo\n    if value > hi:\n        return hi\n    return value"
+      },
+      "checks": {
+        "tests_passed": true
+      },
+      "judge_score": 0.82,
+      "judge_rationale": "Reasoning is grounded in task specifics (closed range, boundaries) and accurately describes the logic, but 'nested comparisons' misstates the implementation\u2014the code uses sequential if-statements, not nested conditionals\u2014making the description slightly imprecise even though the code is correct.",
+      "cost_usd": 0.0,
+      "duration_ms": 3961
+    },
+    {
+      "test_id": "cg-02",
+      "predicted": {
+        "reasoning": "Lowercase the input, keep only alphanumeric characters, and compare the result with its reverse.",
+        "code": "def is_palindrome(s):\n    normalized = ''.join(char for char in s.lower() if char.isalnum())\n    return normalized == normalized[::-1]\n"
+      },
+      "checks": {
+        "tests_passed": true
+      },
+      "judge_score": 0.95,
+      "judge_rationale": "The reasoning is specific to the task (mentions lowercasing, filtering non-alphanumeric characters, and palindrome comparison), internally coherent (describes a clear logical sequence), and directly justifies each step in the code implementation; the code correctly implements all stated steps with no gaps or unsupported leaps.",
+      "cost_usd": 0.0,
+      "duration_ms": 4182
+    },
+    {
+      "test_id": "cg-03",
+      "predicted": {
+        "reasoning": "Return None for an empty list; otherwise divide the sum by the number of elements and convert the result to float.",
+        "code": "def average(nums):\n    if not nums:\n        return None\n    return float(sum(nums) / len(nums))"
+      },
+      "checks": {
+        "tests_passed": true
+      },
+      "judge_score": 0.88,
+      "judge_rationale": "Reasoning is internally coherent and directly grounded in task specifics (empty-list check, sum/count formula for mean, float conversion requirement), though it could more explicitly acknowledge that the guard clause prevents division-by-zero exceptions rather than just stating the approach.",
+      "cost_usd": 0.0,
+      "duration_ms": 3673
+    },
+    {
+      "test_id": "cg-04",
+      "predicted": {
+        "reasoning": "Return True when the year is divisible by 400 or divisible by 4 but not by 100.",
+        "code": "def is_leap_year(year):\n    return year % 400 == 0 or (year % 4 == 0 and year % 100 != 0)\n"
+      },
+      "checks": {
+        "tests_passed": true
+      },
+      "judge_score": 0.92,
+      "judge_rationale": "The reasoning directly maps to the task's three specific Gregorian rules (divisible by 400, divisible by 4, exception for 100) and correctly encodes them as a boolean expression that matches the code; the logic is internally sound and handles all cases (2000\u2192leap, 1900\u2192not leap, 2004\u2192leap, 2001\u2192not leap) correctly.",
+      "cost_usd": 0.0,
+      "duration_ms": 18703
+    },
+    {
+      "test_id": "cg-05",
+      "predicted": {
+        "reasoning": "Check whether the divisor is zero before performing the division, raising the specified error when necessary.",
+        "code": "def safe_divide(a, b):\n    if b == 0:\n        raise ValueError('division by zero')\n    return a / b"
+      },
+      "checks": {
+        "tests_passed": true
+      },
+      "judge_score": 0.88,
+      "judge_rationale": "The reasoning directly maps to the task's specific requirements (checking divisor against zero, raising the specified ValueError, doing so before the division to prevent ZeroDivisionError propagation) and the code correctly implements that strategy, though 'the specified error' could have named ValueError and its message more explicitly rather than deferring to task context.",
+      "cost_usd": 0.0,
+      "duration_ms": 3763
+    },
+    {
+      "test_id": "cg-06",
+      "predicted": {
+        "reasoning": "Use an explicit stack to traverse nested lists iteratively while preserving left-to-right order at arbitrary depth.",
+        "code": "def flatten(nested):\n    result = []\n    stack = list(reversed(nested))\n\n    while stack:\n        item = stack.pop()\n        if isinstance(item, list):\n            stack.extend(reversed(item))\n        else:\n            result.append(item)\n\n    return result"
+      },
+      "checks": {
+        "tests_passed": true
+      },
+      "judge_score": 0.87,
+      "judge_rationale": "The reasoning correctly identifies the algorithm (stack-based iteration), the reason for that choice (handling arbitrary depth), and addresses the core constraint (left-to-right order preservation), all grounded in task specifics; the code correctly implements this via reversal strategy, though the reasoning doesn't explicitly mention the reversal trick that makes order preservation work\u2014a minor gap for a one-sentence statement.",
+      "cost_usd": 0.0,
+      "duration_ms": 4889
+    },
+    {
+      "test_id": "cg-07",
+      "predicted": {
+        "reasoning": "Tokenize punctuation-separated words case-insensitively, count them, then return the earliest word among those with the maximum count.",
+        "code": "import re\nfrom collections import Counter\n\n\ndef most_common_word(text):\n    words = [word.casefold() for word in re.findall(r\"[^\\\\W_]+\", text, flags=re.UNICODE)]\n    if not words:\n        return None\n\n    counts = Counter(words)\n    highest_count = max(counts.values())\n    return next(word for word in words if counts[word] == highest_count)\n"
+      },
+      "checks": {
+        "tests_passed": false
+      },
+      "judge_score": 0.92,
+      "judge_rationale": "The reasoning directly maps to the code: regex tokenization handles punctuation removal, `casefold()` handles case-insensitivity, `Counter` does counting, and `next()` over the original `words` list ensures the first appearance breaks ties\u2014all steps are specific and correctly implemented, though the reasoning omits the empty-text edge case.",
+      "cost_usd": 0.0,
+      "duration_ms": 9563
+    },
+    {
+      "test_id": "cg-08",
+      "predicted": {
+        "reasoning": "Use a strict regular expression to capture optional hour, minute, and second components in order, then sum their values in seconds.",
+        "code": "import re\n\n\ndef parse_duration(s):\n    match = re.fullmatch(r'(?:(\\d+)h)?(?:(\\d+)m)?(?:(\\d+)s)?', s)\n    if match is None:\n        raise ValueError(\"Invalid duration string\")\n    hours, minutes, seconds = (int(value or 0) for value in match.groups())\n    return hours * 3600 + minutes * 60 + seconds"
+      },
+      "checks": {
+        "tests_passed": true
+      },
+      "judge_score": 0.93,
+      "judge_rationale": "The reasoning directly maps to implementation: 'strict regular expression' justifies `fullmatch` over `search`, 'optional...components in order' justifies the `(?:...)?` syntax and h-before-m-before-s sequencing, 'sum their values in seconds' justifies the conversion factors (3600/60/1) \u2014 no generic hand-waving, each claim grounds a specific code choice.",
+      "cost_usd": 0.0,
+      "duration_ms": 6017
+    }
+  ]
+}

@@ -1,0 +1,126 @@
+{
+  "prompt_version": "code_gen_v1",
+  "model": "gpt-5.4-mini",
+  "provider": "codex",
+  "total_cases": 8,
+  "check_accuracies": {
+    "tests_passed": 1.0
+  },
+  "fully_correct_rate": 1.0,
+  "avg_judge_score": 0.8225,
+  "total_cost_usd": 0.0,
+  "results": [
+    {
+      "test_id": "cg-01",
+      "predicted": {
+        "reasoning": "Implement the closed-interval clamp directly with two comparisons, returning the bounds when value falls outside them and the original value otherwise.",
+        "code": "def clamp(value, lo, hi):\n    if value < lo:\n        return lo\n    if value > hi:\n        return hi\n    return value\n"
+      },
+      "checks": {
+        "tests_passed": true
+      },
+      "judge_score": 0.92,
+      "judge_rationale": "The reasoning directly and accurately describes the implementation\u2014two comparisons on value against bounds, returning bounds or original value\u2014and is grounded in task-specific terminology (closed-interval) and logic, not generic.",
+      "cost_usd": 0.0,
+      "duration_ms": 9962
+    },
+    {
+      "test_id": "cg-02",
+      "predicted": {
+        "reasoning": "I normalize the string by keeping only alphanumeric characters, lowercasing them, and then compare the cleaned text to its reverse.",
+        "code": "def is_palindrome(s):\n    cleaned = ''.join(ch.lower() for ch in s if ch.isalnum())\n    return cleaned == cleaned[::-1]\n"
+      },
+      "checks": {
+        "tests_passed": true
+      },
+      "judge_score": 0.95,
+      "judge_rationale": "The reasoning is concrete and directly maps to each step in the code: 'normalize' corresponds to the `lower()` and `isalnum()` filtering, 'keeping only alphanumeric' is `ch.isalnum()`, 'lowercasing them' is `ch.lower()`, and 'compare to reverse' is the `cleaned == cleaned[::-1]` check; it correctly addresses all task requirements and accurately reflects the implementation with no unsupported claims.",
+      "cost_usd": 0.0,
+      "duration_ms": 4073
+    },
+    {
+      "test_id": "cg-03",
+      "predicted": {
+        "reasoning": "I\u2019ll implement a simple mean calculation that returns `None` for an empty input and otherwise divides the sum by the count as a float.",
+        "code": "def average(nums):\n    if not nums:\n        return None\n    return sum(nums) / float(len(nums))\n"
+      },
+      "checks": {
+        "tests_passed": true
+      },
+      "judge_score": 0.9,
+      "judge_rationale": "The reasoning directly maps to specific task requirements (empty list returns None, arithmetic mean calculation, float return type) and accurately describes what the code does, with no generic claims or unsupported leaps.",
+      "cost_usd": 0.0,
+      "duration_ms": 3854
+    },
+    {
+      "test_id": "cg-04",
+      "predicted": {
+        "reasoning": "I implemented the Gregorian leap-year rule directly with the standard divisibility checks in the correct precedence order.",
+        "code": "def is_leap_year(year):\n    return year % 4 == 0 and (year % 100 != 0 or year % 400 == 0)\n"
+      },
+      "checks": {
+        "tests_passed": true
+      },
+      "judge_score": 0.62,
+      "judge_rationale": "The reasoning correctly identifies that Gregorian rules and divisibility checks are involved, but it's generic enough to apply to multiple valid implementations (if-elif chains, nested conditions, etc.) without explaining why this specific boolean expression structure (the AND with the parenthetical OR) is chosen\u2014i.e., it doesn't ground itself in the specific code details that make it work.",
+      "cost_usd": 0.0,
+      "duration_ms": 5012
+    },
+    {
+      "test_id": "cg-05",
+      "predicted": {
+        "reasoning": "I implemented a direct division helper with an explicit zero check that raises the \u0928\u093f\u0930\u094d\u0926\u093f\u0937\u094d\u091f ValueError before performing the operation.",
+        "code": "def safe_divide(a, b):\n    if b == 0:\n        raise ValueError('division by zero')\n    return a / b\n"
+      },
+      "checks": {
+        "tests_passed": true
+      },
+      "judge_score": 0.75,
+      "judge_rationale": "The reasoning correctly identifies all key implementation details (explicit zero check, ValueError with specified message, check before operation) and accurately describes the code, but the unexplained insertion of '\u0928\u093f\u0930\u094d\u0926\u093f\u0937\u094d\u091f' (Hindi for 'specified') creates grammatical noise that undermines coherence despite the substantive content being sound.",
+      "cost_usd": 0.0,
+      "duration_ms": 3438
+    },
+    {
+      "test_id": "cg-06",
+      "predicted": {
+        "reasoning": "I will recursively traverse any nested lists and collect integers into a result list while preserving left-to-right order.",
+        "code": "from typing import List, Union\n\nNestedIntList = List[Union[int, \"NestedIntList\"]]\n\n\ndef flatten(nested):\n    result = []\n\n    def _flatten(value):\n        if isinstance(value, list):\n            for item in value:\n                _flatten(item)\n        else:\n            result.append(value)\n\n    _flatten(nested)\n    return result\n"
+      },
+      "checks": {
+        "tests_passed": true
+      },
+      "judge_score": 0.7,
+      "judge_rationale": "The reasoning is coherent at a high level (it does describe recursive traversal and order preservation) but is generic and undersells the implementation\u2014it doesn't explain the specific design choices (helper function, closure over `result`, `isinstance` check) or acknowledge that the code collects any non-list value, not just integers (a subtle mismatch with the stated 'collect integers' goal).",
+      "cost_usd": 0.0,
+      "duration_ms": 4597
+    },
+    {
+      "test_id": "cg-07",
+      "predicted": {
+        "reasoning": "I normalize words case-insensitively, count them while tracking each word\u2019s first position, then choose the highest count with earliest first occurrence as the tie-breaker.",
+        "code": "import re\nfrom collections import defaultdict\n\n\ndef most_common_word(text):\n    words = [match.group(0).lower() for match in re.finditer(r\"[^\\W_]+\", text, flags=re.UNICODE)]\n    if not words:\n        return \"\"\n\n    counts = defaultdict(int)\n    first_pos = {}\n\n    for index, word in enumerate(words):\n        counts[word] += 1\n        if word not in first_pos:\n            first_pos[word] = index\n\n    best_word = None\n    best_count = -1\n    best_first = len(words)\n\n    for word, count in counts.items():\n        pos = first_pos[word]\n        if count > best_count or (count == best_count and pos < best_first):\n            best_word = word\n            best_count = count\n            best_first = pos\n\n    return best_word\n"
+      },
+      "checks": {
+        "tests_passed": true
+      },
+      "judge_score": 0.87,
+      "judge_rationale": "The reasoning coherently maps to the code across all stated steps (case normalization, counting, position tracking, tie-breaking), and is grounded in task specifics (highest count, first occurrence). The only minor gap: the reasoning doesn't explicitly name how punctuation is handled (regex extraction), though the implementation correctly handles it\u2014someone reading just the reasoning statement might miss that mechanism, even if the code is sound.",
+      "cost_usd": 0.0,
+      "duration_ms": 23116
+    },
+    {
+      "test_id": "cg-08",
+      "predicted": {
+        "reasoning": "I use a full-string regex with optional h/m/s capture groups in order, then convert any matched components to seconds and sum them.",
+        "code": "import re\n\n_DURATION_RE = re.compile(r\"^(?:(\\d+)h)?(?:(\\d+)m)?(?:(\\d+)s)?$\")\n\n\ndef parse_duration(s):\n    match = _DURATION_RE.fullmatch(s)\n    if not match:\n        raise ValueError(f\"invalid duration string: {s!r}\")\n\n    hours, minutes, seconds = match.groups()\n    total = 0\n    if hours is not None:\n        total += int(hours) * 3600\n    if minutes is not None:\n        total += int(minutes) * 60\n    if seconds is not None:\n        total += int(seconds)\n    return total\n"
+      },
+      "checks": {
+        "tests_passed": true
+      },
+      "judge_score": 0.87,
+      "judge_rationale": "Reasoning is internally coherent and correctly grounded in all key task requirements: the regex correctly enforces h\u2192m\u2192s ordering with optional components, the conversion logic properly scales each unit to seconds, and the code faithfully implements the stated approach; minor weakness is that the reasoning doesn't justify specific choices (fullmatch vs match, non-capturing outer groups) but these aren't necessary for correctness.",
+      "cost_usd": 0.0,
+      "duration_ms": 10334
+    }
+  ]
+}

@@ -1,0 +1,126 @@
+{
+  "prompt_version": "code_gen_v1",
+  "model": "sonnet",
+  "provider": "claude",
+  "total_cases": 8,
+  "check_accuracies": {
+    "tests_passed": 1.0
+  },
+  "fully_correct_rate": 1.0,
+  "avg_judge_score": 0.78375,
+  "total_cost_usd": 0.34464,
+  "results": [
+    {
+      "test_id": "cg-01",
+      "predicted": {
+        "reasoning": "Simple straightforward comparison chain to restrict value within [lo, hi].",
+        "code": "def clamp(value, lo, hi):\n    if value < lo:\n        return lo\n    if value > hi:\n        return hi\n    return value\n"
+      },
+      "checks": {
+        "tests_passed": true
+      },
+      "judge_score": 0.58,
+      "judge_rationale": "The reasoning is internally coherent but generic\u2014'comparison chain to restrict value' could describe multiple valid implementations (e.g., `max(lo, min(value, hi))` or a ternary expression), and it doesn't justify *this specific* approach of sequential if-statements with early returns over alternatives, nor does it reference any implementation-specific details.",
+      "cost_usd": 0.04201,
+      "duration_ms": 2036
+    },
+    {
+      "test_id": "cg-02",
+      "predicted": {
+        "reasoning": "Normalize the string by keeping only alphanumeric characters (via str.isalnum) and lowercasing, then compare it to its reverse.",
+        "code": "def is_palindrome(s):\n    normalized = [c.lower() for c in s if c.isalnum()]\n    return normalized == normalized[::-1]\n"
+      },
+      "checks": {
+        "tests_passed": true
+      },
+      "judge_score": 0.95,
+      "judge_rationale": "Reasoning directly describes the implementation with specific details (str.isalnum for alphanumeric filtering, lowercasing, reverse comparison) that map precisely to task requirements and the code provided; no gaps or unsupported claims.",
+      "cost_usd": 0.042255,
+      "duration_ms": 2290
+    },
+    {
+      "test_id": "cg-03",
+      "predicted": {
+        "reasoning": "Simple guard clause for empty list, otherwise sum/len as float.",
+        "code": "def average(nums):\n    if not nums:\n        return None\n    return sum(nums) / len(nums)"
+      },
+      "checks": {
+        "tests_passed": true
+      },
+      "judge_score": 0.92,
+      "judge_rationale": "The reasoning directly maps to task requirements (guard clause addresses empty-list handling without exception, sum/len returns float) and is specifically grounded in both the code structure and the exact task constraints\u2014not generic.",
+      "cost_usd": 0.041604,
+      "duration_ms": 2282
+    },
+    {
+      "test_id": "cg-04",
+      "predicted": {
+        "reasoning": "Straightforward implementation of Gregorian leap year rules using modulo checks.",
+        "code": "def is_leap_year(year):\n    return year % 4 == 0 and (year % 100 != 0 or year % 400 == 0)"
+      },
+      "checks": {
+        "tests_passed": true
+      },
+      "judge_score": 0.28,
+      "judge_rationale": "The reasoning is generic and provides zero grounding in the task's specific leap year rules (divisible by 4, except centuries unless divisible by 400); it could apply to any modulo-based implementation without explaining how the code's boolean logic actually implements those exception-to-exception rules.",
+      "cost_usd": 0.041904,
+      "duration_ms": 1975
+    },
+    {
+      "test_id": "cg-05",
+      "predicted": {
+        "reasoning": "Simple guard clause checking for zero divisor before performing division, raising ValueError as specified.",
+        "code": "def safe_divide(a, b):\n    if b == 0:\n        raise ValueError('division by zero')\n    return a / b\n"
+      },
+      "checks": {
+        "tests_passed": true
+      },
+      "judge_score": 0.92,
+      "judge_rationale": "The reasoning directly references the specific guard clause pattern used ('checking for zero divisor before performing division') and explicitly calls out the required ValueError with exact message, mapping cleanly to the implemented code with no gaps or unsupported claims.",
+      "cost_usd": 0.041929,
+      "duration_ms": 1756
+    },
+    {
+      "test_id": "cg-06",
+      "predicted": {
+        "reasoning": "Recursively walk the nested list, appending ints directly and extending with recursive flatten results for sub-lists.",
+        "code": "def flatten(nested):\n    result = []\n    for item in nested:\n        if isinstance(item, list):\n            result.extend(flatten(item))\n        else:\n            result.append(item)\n    return result"
+      },
+      "checks": {
+        "tests_passed": true
+      },
+      "judge_score": 0.87,
+      "judge_rationale": "Reasoning directly describes the algorithm's structure (recursive descent, conditional branch on isinstance, extend vs. append) and grounds each choice in task requirements (ints, nested lists, left-to-right preservation via iteration order); minor deduction only because it doesn't explicitly justify why recursion+extend handles arbitrary depth or why append vs. extend preserves order.",
+      "cost_usd": 0.04232400000000001,
+      "duration_ms": 2525
+    },
+    {
+      "test_id": "cg-07",
+      "predicted": {
+        "reasoning": "Extract words case-insensitively while stripping punctuation using regex, count frequencies with Counter, then scan the ordered list of words to find the first one whose count equals the maximum (ensuring ties resolve to first appearance in text).",
+        "code": "import re\nfrom collections import Counter\n\n\ndef most_common_word(text):\n    words = re.findall(r\"[a-zA-Z']+\", text.lower())\n    if not words:\n        return None\n    counts = Counter(words)\n    max_count = max(counts.values())\n    for word in words:\n        if counts[word] == max_count:\n            return word\n    return None"
+      },
+      "checks": {
+        "tests_passed": true
+      },
+      "judge_score": 0.87,
+      "judge_rationale": "The reasoning accurately traces the code's logic at each step\u2014regex extraction, Counter usage, max-finding, and the critical detail that iterating through the original `words` list (not deduped) ensures first-appearance tie-breaking. The only minor imprecision is 'stripping punctuation'\u2014the code filters *to* letters/apostrophes rather than stripping *from* words\u2014but the semantic gap is negligible and the reasoning correctly captures the net effect.",
+      "cost_usd": 0.04661,
+      "duration_ms": 4284
+    },
+    {
+      "test_id": "cg-08",
+      "predicted": {
+        "reasoning": "Use a regex to match optional h/m/s components in order, validate that at least one is present and the string is fully matched, then sum the components scaled to seconds.",
+        "code": "import re\n\ndef parse_duration(s):\n    if not isinstance(s, str) or s == \"\":\n        raise ValueError(f\"Invalid duration string: {s!r}\")\n\n    pattern = r'^(?:(\\d+)h)?(?:(\\d+)m)?(?:(\\d+)s)?$'\n    match = re.match(pattern, s)\n\n    if not match or not any(match.groups()):\n        raise ValueError(f\"Invalid duration string: {s!r}\")\n\n    hours, minutes, seconds = match.groups()\n\n    total = 0\n    if hours:\n        total += int(hours) * 3600\n    if minutes:\n        total += int(minutes) * 60\n    if seconds:\n        total += int(seconds)\n\n    return total"
+      },
+      "checks": {
+        "tests_passed": true
+      },
+      "judge_score": 0.88,
+      "judge_rationale": "The reasoning directly maps to the implementation\u2014regex with optional h/m/s groups in order, validation of at least one component via `any(match.groups())`, full-string anchoring with `^$`, and component summation with correct scaling factors (3600/60/1)\u2014and cites task-specific requirements (component order, validation, seconds output), though it could be more explicit about how `any()` and anchors satisfy those constraints.",
+      "cost_usd": 0.046003999999999996,
+      "duration_ms": 3999
+    }
+  ]
+}
