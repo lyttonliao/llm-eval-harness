@@ -30,13 +30,17 @@ should be a deliberate, confirmed edit, not a side effect of a benchmark run.
    matches same prompt+model, so pull multiple files directly for a
    cross-model view rather than relying on that function here.
 
-4. Compare `severity_accuracy`, `category_accuracy`, and `avg_judge_score`
-   against the Claude baselines. Per the router's quality-floor concept: a
-   model belongs in the cheapest tier whose accuracy/judge-coherence is not
-   meaningfully worse than the tier above it for this task category. Do not
-   weigh `total_cost_usd` for a Codex run - it's always `0.0` (no dollar-cost
-   field exists in `codex exec`'s output, see CLAUDE.md) - compare cost only
-   between two Claude runs, never Claude vs. Codex.
+4. Compare `check_accuracies` (per-suite check names - e.g. `severity`/
+   `category` for `bug_triage`, `tests_passed` for `code_gen`) and
+   `avg_judge_score` against the Claude baselines. Per the router's
+   quality-floor concept: a model belongs in the cheapest tier whose
+   accuracy/judge-coherence is not meaningfully worse than the tier above it
+   for this task category. Do not weigh `total_cost_usd` for a Codex run -
+   it's always `0.0` (no dollar-cost field exists in `codex exec`'s output,
+   see CLAUDE.md) - compare cost only between two Claude runs, never Claude
+   vs. Codex. Watch for a ceiling effect on small suites (e.g. `code_gen`'s
+   8 cases): if every tier scores ~100%, that's a signal the suite isn't
+   discriminating between tiers yet, not that every model clears the floor.
 
 5. Present a recommendation (cheap/mid/flagship) with the numbers behind it.
    Only edit `llm-task-router/tiers.py`'s `TIER_MODELS` if the user confirms -
