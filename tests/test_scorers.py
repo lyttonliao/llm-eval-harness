@@ -2,7 +2,7 @@ from unittest.mock import patch
 
 from eval_harness.claude_cli import CliResult
 from eval_harness.schema import ModelOutput, TestCase
-from eval_harness.scorers import judge_score, rule_based_score_bug_triage, score_all
+from eval_harness.scorers import judge_score, rule_based_score_bug_triage, rule_based_score_code_gen, score_all
 
 CASE = TestCase(
     id="bt-01",
@@ -54,6 +54,49 @@ def test_rule_based_score_mismatch_is_false():
     output = _output(predicted=_predicted(severity="low", category="frontend"))
     checks = rule_based_score_bug_triage(CASE, output)
     assert checks == {"severity": False, "category": False}
+
+
+# --- rule_based_score_code_gen ----------------------------------------------
+
+CODE_GEN_CASE = TestCase(
+    id="cg-01",
+    input="Write an add(a, b) function.",
+    expected={"test_code": "from solution import add\n\n\ndef test_add():\n    assert add(2, 3) == 5\n"},
+)
+
+
+def test_rule_based_score_code_gen_passes_when_sandbox_reports_success():
+    output = ModelOutput(
+        test_id="cg-01", raw_text="{}", predicted={"code": "def add(a, b):\n    return a + b\n"},
+        cost_usd=0.001, duration_ms=500,
+    )
+    with patch("eval_harness.scorers.sandbox.run_pytest_check", return_value=(True, "1 passed")) as mock_check:
+        checks = rule_based_score_code_gen(CODE_GEN_CASE, output)
+
+    assert checks == {"tests_passed": True}
+    mock_check.assert_called_once_with(
+        "def add(a, b):\n    return a + b\n", CODE_GEN_CASE.expected["test_code"]
+    )
+
+
+def test_rule_based_score_code_gen_fails_when_sandbox_reports_failure():
+    output = ModelOutput(
+        test_id="cg-01", raw_text="{}", predicted={"code": "def add(a, b):\n    return a - b\n"},
+        cost_usd=0.001, duration_ms=500,
+    )
+    with patch("eval_harness.scorers.sandbox.run_pytest_check", return_value=(False, "1 failed")):
+        checks = rule_based_score_code_gen(CODE_GEN_CASE, output)
+
+    assert checks == {"tests_passed": False}
+
+
+def test_rule_based_score_code_gen_handles_missing_code_key():
+    output = ModelOutput(test_id="cg-01", raw_text="{}", predicted={}, cost_usd=0.001, duration_ms=500)
+    with patch("eval_harness.scorers.sandbox.run_pytest_check", return_value=(False, "no code")) as mock_check:
+        checks = rule_based_score_code_gen(CODE_GEN_CASE, output)
+
+    assert checks == {"tests_passed": False}
+    mock_check.assert_called_once_with("", CODE_GEN_CASE.expected["test_code"])
 
 
 # --- judge_score ----------------------------------------------------------

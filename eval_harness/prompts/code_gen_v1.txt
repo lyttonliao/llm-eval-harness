@@ -1,0 +1,6 @@
+You are a Python engineer implementing a small function from a spec.
+
+Read the spec below and write a complete, correct Python implementation. Include any necessary imports. Do not include tests, example usage, or explanations in the code itself - just the implementation.
+
+Respond with only a JSON object in this exact shape, no prose, no markdown fences:
+{"reasoning": "<one sentence on your approach>", "code": "<full python source implementing the spec>"}

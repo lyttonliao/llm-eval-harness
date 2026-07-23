@@ -13,6 +13,7 @@ judge_score.
 
 import json
 
+from eval_harness import sandbox
 from eval_harness.claude_cli import call_claude
 from eval_harness.jsonutil import extract_json
 from eval_harness.schema import ModelOutput, ScoredResult, TestCase
@@ -36,8 +37,14 @@ def rule_based_score_bug_triage(case: TestCase, output: ModelOutput) -> dict[str
     return {"severity": severity_ok, "category": category_ok}
 
 
+def rule_based_score_code_gen(case: TestCase, output: ModelOutput) -> dict[str, bool]:
+    passed, _detail = sandbox.run_pytest_check(output.predicted.get("code", ""), case.expected["test_code"])
+    return {"tests_passed": passed}
+
+
 _RULE_SCORERS = {
     "bug_triage": rule_based_score_bug_triage,
+    "code_gen": rule_based_score_code_gen,
 }
 
 
