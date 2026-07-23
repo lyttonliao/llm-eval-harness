@@ -1,0 +1,126 @@
+{
+  "prompt_version": "code_gen_v1",
+  "model": "haiku",
+  "provider": "claude",
+  "total_cases": 8,
+  "check_accuracies": {
+    "tests_passed": 1.0
+  },
+  "fully_correct_rate": 1.0,
+  "avg_judge_score": 0.0,
+  "total_cost_usd": 0.120562,
+  "results": [
+    {
+      "test_id": "cg-01",
+      "predicted": {
+        "reasoning": "Use nested min/max: min(value, hi) caps at the upper bound, then max(lo, ...) caps at the lower bound.",
+        "code": "def clamp(value, lo, hi):\n    return max(lo, min(value, hi))"
+      },
+      "checks": {
+        "tests_passed": true
+      },
+      "judge_score": 0.0,
+      "judge_rationale": "judging disabled",
+      "cost_usd": 0.012505,
+      "duration_ms": 4515
+    },
+    {
+      "test_id": "cg-02",
+      "predicted": {
+        "reasoning": "Filter the string to keep only alphanumeric characters after lowercasing, then check if the result equals its reverse.",
+        "code": "def is_palindrome(s):\n    cleaned = ''.join(c for c in s.lower() if c.isalnum())\n    return cleaned == cleaned[::-1]"
+      },
+      "checks": {
+        "tests_passed": true
+      },
+      "judge_score": 0.0,
+      "judge_rationale": "judging disabled",
+      "cost_usd": 0.012378,
+      "duration_ms": 4389
+    },
+    {
+      "test_id": "cg-03",
+      "predicted": {
+        "reasoning": "Check for empty list first and return None, otherwise compute sum divided by length for the arithmetic mean.",
+        "code": "def average(nums):\n    if not nums:\n        return None\n    return sum(nums) / len(nums)"
+      },
+      "checks": {
+        "tests_passed": true
+      },
+      "judge_score": 0.0,
+      "judge_rationale": "judging disabled",
+      "cost_usd": 0.011257,
+      "duration_ms": 3425
+    },
+    {
+      "test_id": "cg-04",
+      "predicted": {
+        "reasoning": "Check divisibility by 400 first (always leap), then exclude century years not divisible by 400, then check divisibility by 4.",
+        "code": "def is_leap_year(year):\n    return (year % 4 == 0 and year % 100 != 0) or (year % 400 == 0)"
+      },
+      "checks": {
+        "tests_passed": true
+      },
+      "judge_score": 0.0,
+      "judge_rationale": "judging disabled",
+      "cost_usd": 0.012603999999999999,
+      "duration_ms": 5110
+    },
+    {
+      "test_id": "cg-05",
+      "predicted": {
+        "reasoning": "Check if b is zero before division and raise ValueError with the specified message, otherwise return the quotient.",
+        "code": "def safe_divide(a, b):\n    if b == 0:\n        raise ValueError('division by zero')\n    return a / b"
+      },
+      "checks": {
+        "tests_passed": true
+      },
+      "judge_score": 0.0,
+      "judge_rationale": "judging disabled",
+      "cost_usd": 0.013132000000000001,
+      "duration_ms": 5664
+    },
+    {
+      "test_id": "cg-06",
+      "predicted": {
+        "reasoning": "Use recursion to traverse the nested structure, extending the result list with flattened sublists and appending individual integers to maintain left-to-right order.",
+        "code": "def flatten(nested):\n    result = []\n    for item in nested:\n        if isinstance(item, list):\n            result.extend(flatten(item))\n        else:\n            result.append(item)\n    return result"
+      },
+      "checks": {
+        "tests_passed": true
+      },
+      "judge_score": 0.0,
+      "judge_rationale": "judging disabled",
+      "cost_usd": 0.013283,
+      "duration_ms": 6519
+    },
+    {
+      "test_id": "cg-07",
+      "predicted": {
+        "reasoning": "Split text into tokens, strip punctuation, track word frequencies and first appearance index; return the word with highest count, using earliest appearance as the tiebreaker by negating the index in the sort key.",
+        "code": "import string\n\ndef most_common_word(text):\n    words = text.lower().split()\n    \n    word_counts = {}\n    first_appearance = {}\n    \n    for i, word in enumerate(words):\n        cleaned = word.strip(string.punctuation)\n        \n        if cleaned:\n            if cleaned not in first_appearance:\n                first_appearance[cleaned] = i\n            word_counts[cleaned] = word_counts.get(cleaned, 0) + 1\n    \n    if not word_counts:\n        return None\n    \n    most_common = max(word_counts.keys(), key=lambda w: (word_counts[w], -first_appearance[w]))\n    return most_common"
+      },
+      "checks": {
+        "tests_passed": true
+      },
+      "judge_score": 0.0,
+      "judge_rationale": "judging disabled",
+      "cost_usd": 0.028845999999999997,
+      "duration_ms": 31084
+    },
+    {
+      "test_id": "cg-08",
+      "predicted": {
+        "reasoning": "Use regex to independently extract each component (hours, minutes, seconds), convert to integers with 0 as default for missing components, then sum their contributions to total seconds.",
+        "code": "import re\n\ndef parse_duration(s):\n    hours = 0\n    minutes = 0\n    seconds = 0\n    \n    h_match = re.search(r'(\\d+)h', s)\n    if h_match:\n        hours = int(h_match.group(1))\n    \n    m_match = re.search(r'(\\d+)m', s)\n    if m_match:\n        minutes = int(m_match.group(1))\n    \n    s_match = re.search(r'(\\d+)s', s)\n    if s_match:\n        seconds = int(s_match.group(1))\n    \n    return hours * 3600 + minutes * 60 + seconds"
+      },
+      "checks": {
+        "tests_passed": true
+      },
+      "judge_score": 0.0,
+      "judge_rationale": "judging disabled",
+      "cost_usd": 0.016557000000000002,
+      "duration_ms": 10636
+    }
+  ]
+}

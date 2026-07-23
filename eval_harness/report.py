@@ -105,12 +105,12 @@ def print_report(summary: RunSummary, previous: RunSummary | None = None) -> Non
     print()
     print(f"=== {summary.prompt_version} / {summary.provider}/{summary.model} ({summary.total_cases} cases) ===")
     for name, value in summary.check_accuracies.items():
-        label = f"{name} accuracy:"
+        label = f"{name} accuracy: "
         prev_value = previous.check_accuracies.get(name) if previous else None
         if prev_value is None:
-            print(f"{label:<22}{value:.1%}")
+            print(f"{label:<23}{value:.1%}")
         else:
-            print(f"{label:<22}{_fmt_delta(value, prev_value)}")
+            print(f"{label:<23}{_fmt_delta(value, prev_value)}")
     if previous:
         print(f"fully correct:        {_fmt_delta(summary.fully_correct_rate, previous.fully_correct_rate)}")
         print(f"avg judge coherence:  {_fmt_delta(summary.avg_judge_score, previous.avg_judge_score)}")
