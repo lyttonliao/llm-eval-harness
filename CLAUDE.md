@@ -1,6 +1,6 @@
 # llm-eval-harness
 
-A from-scratch eval harness for scoring prompt/model quality on a bug-triage classification task. Built as a learning project — the point is understanding evals well enough to trust (or distrust) later, more ambitious LLM projects, particularly a planned cross-model-tier router.
+A from-scratch eval harness for scoring prompt/model quality on a bug-triage classification task. Built as a learning project — the point is understanding evals well enough to trust (or distrust) later, more ambitious LLM projects, particularly `llm-task-router` (sibling repo, `../llm-task-router`), a cross-model-tier router that routes a task to the cheapest model tier clearing a per-category quality floor. This repo's benchmark runs *are* how that quality floor gets measured — `llm-task-router/tiers.py`'s tier→model mapping should only be populated from real runs recorded here, never guessed. See the `calibrate-tier` skill in this repo for that workflow, and `llm-task-router/CLAUDE.md`'s "Adding a provider" section for the other side of it.
 
 ## Why it's built this way
 
