@@ -49,3 +49,4 @@ class RunSummary:
     avg_judge_score: float
     total_cost_usd: float
     results: list[ScoredResult] = field(default_factory=list)
+    provider: str = "claude"

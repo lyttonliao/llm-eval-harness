@@ -155,3 +155,38 @@ def test_find_previous_run_reconstructed_summary_has_empty_results():
     previous = report.find_previous_run("v1_naive", "haiku")
 
     assert previous.results == []
+
+
+def test_provider_round_trips_through_save_and_find_previous_run(isolated_runs_dir):
+    summary = report.build_summary("v1_naive", "gpt-5", [_result()], provider="codex")
+    saved_path = report.save_run(summary)
+
+    payload = json.loads(saved_path.read_text())
+    assert payload["provider"] == "codex"
+
+    previous = report.find_previous_run("v1_naive", "gpt-5")
+    assert previous.provider == "codex"
+
+
+def test_find_previous_run_defaults_provider_to_claude_for_pre_existing_run_files(isolated_runs_dir):
+    """Run files saved before Codex support existed have no "provider" key -
+    find_previous_run must default it, not raise KeyError."""
+    isolated_runs_dir.mkdir(exist_ok=True)
+    path = isolated_runs_dir / "20260101T000000Z__v1_naive__haiku.json"
+    payload = {
+        "prompt_version": "v1_naive",
+        "model": "haiku",
+        "total_cases": 1,
+        "severity_accuracy": 1.0,
+        "category_accuracy": 1.0,
+        "fully_correct_rate": 1.0,
+        "avg_judge_score": 0.9,
+        "total_cost_usd": 0.001,
+        "results": [],
+    }
+    path.write_text(json.dumps(payload))
+
+    previous = report.find_previous_run("v1_naive", "haiku")
+
+    assert previous is not None
+    assert previous.provider == "claude"

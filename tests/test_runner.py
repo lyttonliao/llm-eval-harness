@@ -107,3 +107,24 @@ def test_run_suite_calls_claude_once_per_case_never_hitting_real_cli():
 
     assert mock_call.call_count == 3
     assert len(outputs) == 3
+
+
+def test_run_suite_dispatches_to_codex_when_provider_is_codex():
+    """Regression guard for the early-binding bug found in llm-task-router:
+    provider dispatch must be resolved fresh inside run_suite, not via a
+    module-level dict built at import time, or this patch would silently be
+    ignored and the real (unmocked) call_claude/call_codex would run."""
+    cases = _make_cases(1)
+    payload_text = '{"reasoning": "x", "severity": "low", "category": "frontend"}'
+    with patch("eval_harness.runner.load_cases", return_value=cases), patch(
+        "eval_harness.runner.load_prompt", return_value="sys prompt"
+    ), patch(
+        "eval_harness.runner.call_codex",
+        return_value=CliResult(text=payload_text, cost_usd=0.0, duration_ms=100),
+    ) as mock_codex, patch("eval_harness.runner.call_claude") as mock_claude:
+        outputs = run_suite("bug_triage", "v1_naive", provider="codex", model="gpt-5")
+
+    mock_codex.assert_called_once_with("sys prompt", "report 1", model="gpt-5")
+    mock_claude.assert_not_called()
+    assert len(outputs) == 1
+    assert outputs[0].predicted_severity == "low"

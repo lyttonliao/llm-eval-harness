@@ -32,6 +32,12 @@ def rule_based_score(case: TestCase, output: ModelOutput) -> tuple[bool, bool]:
 
 
 def judge_score(case: TestCase, output: ModelOutput, judge_model: str = "haiku") -> tuple[float, str]:
+    """The judge call below is deliberately always call_claude, regardless of
+    which provider produced `output` (see codex_cli.py/runner.py's provider
+    param). Judging Codex output with a different model lineage than the one
+    under test is intentional, not a missed parameterization - a same-family
+    judge risks correlated errors (the model under test and its judge share
+    training data/lineage and can converge on the same wrong answer)."""
     if output.parse_error:
         return 0.0, f"skipped judging: model output failed to parse ({output.parse_error})"
 

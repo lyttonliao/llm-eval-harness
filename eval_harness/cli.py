@@ -5,10 +5,32 @@ from eval_harness.runner import load_cases, run_suite
 from eval_harness.scorers import score_all
 
 
-def run_once(suite: str, prompt: str, model: str, judge: bool) -> None:
-    print(f"Running suite '{suite}' with prompt '{prompt}' on model '{model}'...")
+def resolve_model(provider: str, model: str | None) -> str:
+    """--model has no cross-provider default that makes sense: "haiku" is a
+    Claude model name, and guessing a Codex model name risks a real 400 (see
+    codex_cli.py) since valid names are account-dependent. For Claude, no
+    --model falls back to "haiku". For Codex there's no safe name to guess -
+    and letting a benchmark run silently proceed with an unknown model name
+    would defeat the whole point of collecting calibration data (a real run
+    without --model got saved to disk as "codex/None"), so this raises
+    instead of guessing."""
+    if model is not None:
+        return model
+    if provider == "claude":
+        return "haiku"
+    raise ValueError(
+        "--model is required when --provider codex - valid model names are "
+        "account-dependent (see codex_cli.py), and benchmark results need a "
+        "known model name to be usable as calibration data"
+    )
+
+
+def run_once(suite: str, prompt: str, provider: str, model: str, judge: bool) -> None:
+    print(f"Running suite '{suite}' with prompt '{prompt}' on {provider}/{model}...")
+    if provider == "codex":
+        print("note: codex provider does not report per-call cost; total_cost_usd will read $0.00")
     cases = load_cases(suite)
-    outputs = run_suite(suite, prompt, model=model)
+    outputs = run_suite(suite, prompt, provider=provider, model=model)
 
     if judge:
         print("\nScoring (rule-based + judge)...")
@@ -16,16 +38,16 @@ def run_once(suite: str, prompt: str, model: str, judge: bool) -> None:
         print("\nScoring (rule-based only)...")
     results = score_all(cases, outputs, run_judge=judge)
 
-    summary = build_summary(prompt, model, results)
+    summary = build_summary(prompt, model, results, provider=provider)
     saved_path = save_run(summary)
     previous = find_previous_run(prompt, model, before=saved_path)
     print_report(summary, previous=previous)
     print(f"saved: {saved_path.relative_to(saved_path.parent.parent)}")
 
 
-def compare(suite: str, prompt_a: str, prompt_b: str, model: str, judge: bool) -> None:
+def compare(suite: str, prompt_a: str, prompt_b: str, provider: str, model: str, judge: bool) -> None:
     for prompt in (prompt_a, prompt_b):
-        run_once(suite, prompt, model, judge)
+        run_once(suite, prompt, provider, model, judge)
 
     # pull the just-saved summaries back for a side-by-side
     a = find_previous_run(prompt_a, model)
@@ -33,7 +55,7 @@ def compare(suite: str, prompt_a: str, prompt_b: str, model: str, judge: bool) -
     if not a or not b:
         return
 
-    print(f"=== head-to-head: {prompt_a} vs {prompt_b} ({model}) ===")
+    print(f"=== head-to-head: {prompt_a} vs {prompt_b} ({provider}/{model}) ===")
     print(f"{'metric':<20}{prompt_a:>18}{prompt_b:>18}")
     for label, key in [
         ("severity accuracy", "severity_accuracy"),
@@ -54,22 +76,29 @@ def main() -> None:
     p_run = sub.add_parser("run", help="run one prompt version through the suite")
     p_run.add_argument("--suite", default="bug_triage")
     p_run.add_argument("--prompt", required=True, help="prompt filename without .txt, e.g. v1_naive")
-    p_run.add_argument("--model", default="haiku")
+    p_run.add_argument("--provider", default="claude", choices=["claude", "codex"])
+    p_run.add_argument("--model", default=None, help="defaults to haiku for claude; required for codex")
     p_run.add_argument("--no-judge", action="store_true", help="skip the LLM-judge pass (cheaper, faster)")
 
     p_cmp = sub.add_parser("compare", help="run two prompt versions head-to-head")
     p_cmp.add_argument("--suite", default="bug_triage")
     p_cmp.add_argument("--prompt-a", required=True)
     p_cmp.add_argument("--prompt-b", required=True)
-    p_cmp.add_argument("--model", default="haiku")
+    p_cmp.add_argument("--provider", default="claude", choices=["claude", "codex"])
+    p_cmp.add_argument("--model", default=None)
     p_cmp.add_argument("--no-judge", action="store_true")
 
     args = parser.parse_args()
 
+    try:
+        model = resolve_model(args.provider, args.model)
+    except ValueError as e:
+        parser.error(str(e))
+
     if args.command == "run":
-        run_once(args.suite, args.prompt, args.model, judge=not args.no_judge)
+        run_once(args.suite, args.prompt, args.provider, model, judge=not args.no_judge)
     elif args.command == "compare":
-        compare(args.suite, args.prompt_a, args.prompt_b, args.model, judge=not args.no_judge)
+        compare(args.suite, args.prompt_a, args.prompt_b, args.provider, model, judge=not args.no_judge)
 
 
 if __name__ == "__main__":

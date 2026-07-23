@@ -7,7 +7,9 @@ from eval_harness.schema import RunSummary, ScoredResult
 RUNS_DIR = Path(__file__).parent.parent / "runs"
 
 
-def build_summary(prompt_version: str, model: str, results: list[ScoredResult]) -> RunSummary:
+def build_summary(
+    prompt_version: str, model: str, results: list[ScoredResult], provider: str = "claude"
+) -> RunSummary:
     n = len(results) or 1
     return RunSummary(
         prompt_version=prompt_version,
@@ -19,6 +21,7 @@ def build_summary(prompt_version: str, model: str, results: list[ScoredResult]) 
         avg_judge_score=sum(r.judge_score for r in results) / n,
         total_cost_usd=sum(r.cost_usd for r in results),
         results=results,
+        provider=provider,
     )
 
 
@@ -34,6 +37,7 @@ def save_run(summary: RunSummary) -> Path:
     payload = {
         "prompt_version": summary.prompt_version,
         "model": summary.model,
+        "provider": summary.provider,
         "total_cases": summary.total_cases,
         "severity_accuracy": summary.severity_accuracy,
         "category_accuracy": summary.category_accuracy,
@@ -77,6 +81,9 @@ def find_previous_run(prompt_version: str, model: str, before: Path | None = Non
         fully_correct_rate=data["fully_correct_rate"],
         avg_judge_score=data["avg_judge_score"],
         total_cost_usd=data["total_cost_usd"],
+        # .get(), not [] - run files saved before the provider field existed
+        # (see runs/ history predating Codex support) don't have this key.
+        provider=data.get("provider", "claude"),
     )
 
 
@@ -89,7 +96,7 @@ def _fmt_delta(new: float, old: float) -> str:
 
 def print_report(summary: RunSummary, previous: RunSummary | None = None) -> None:
     print()
-    print(f"=== {summary.prompt_version} / {summary.model} ({summary.total_cases} cases) ===")
+    print(f"=== {summary.prompt_version} / {summary.provider}/{summary.model} ({summary.total_cases} cases) ===")
     if previous:
         print(f"severity accuracy:    {_fmt_delta(summary.severity_accuracy, previous.severity_accuracy)}")
         print(f"category accuracy:    {_fmt_delta(summary.category_accuracy, previous.category_accuracy)}")

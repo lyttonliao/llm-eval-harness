@@ -2,6 +2,7 @@ import json
 from pathlib import Path
 
 from eval_harness.claude_cli import call_claude
+from eval_harness.codex_cli import call_codex
 from eval_harness.jsonutil import extract_json
 from eval_harness.schema import ModelOutput, TestCase
 
@@ -25,14 +26,20 @@ def load_prompt(version: str) -> str:
     return (PROMPTS_DIR / f"{version}.txt").read_text()
 
 
-def run_suite(suite: str, prompt_version: str, model: str = "haiku") -> list[ModelOutput]:
+def run_suite(suite: str, prompt_version: str, provider: str = "claude", model: str = "haiku") -> list[ModelOutput]:
     cases = load_cases(suite)
     system_prompt = load_prompt(prompt_version)
     outputs = []
 
+    # Resolved fresh on every call (not a module-level dict built once at
+    # import time) so that patch("eval_harness.runner.call_claude"/"call_codex")
+    # in tests actually takes effect - a dict built at import time would
+    # capture the pre-patch function reference and silently ignore the mock.
+    call_model = call_claude if provider == "claude" else call_codex
+
     for i, case in enumerate(cases, 1):
         print(f"  [{i}/{len(cases)}] {case.id}...", end=" ", flush=True)
-        result = call_claude(system_prompt, case.bug_report, model=model)
+        result = call_model(system_prompt, case.bug_report, model=model)
 
         if result.error:
             print(f"ERROR: {result.error}")
