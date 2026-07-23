@@ -37,11 +37,26 @@ Rule scoring checks whether the answer matches the golden set (label match for `
 1. Add `eval_harness/cases/<suite>.jsonl` - one `TestCase` per line: `id`, `input` (the text shown to the model), `expected` (a dict whose shape is suite-specific - e.g. `{"severity": ..., "category": ...}` for a classification suite, `{"test_code": ...}` for a suite graded by execution), `notes`.
 2. Add prompt version(s) to `eval_harness/prompts/`, named suite-first (e.g. `<suite>_v1.txt`) so it's unambiguous which suite a prompt targets - there's no runtime check tying a prompt to a suite. The output contract models must follow: `{"reasoning": "...", ...suite-specific fields...}` - the `reasoning` key is required (the judge reads it), everything else is suite-specific.
 3. Add a `rule_based_score_<suite>(case, output) -> dict[str, bool]` function to `scorers.py` and register it in `_RULE_SCORERS`. If grading needs executing the model's output (like `code_gen`'s `sandbox.run_pytest_check`), see "Sandboxed execution trust model" below before adding a new execution path.
-4. `python -m eval_harness run --suite <suite> --prompt <version> --model haiku`
+4. Don't stop at cases that check one obvious requirement each - `code_gen`'s first 8 cases were exactly that and turned out to have almost no power to discriminate between models (see "`code_gen.jsonl` case design" below). Include cases that target known failure modes for the task type, and validate every case two ways before trusting it: a correct reference implementation must pass, and at least one plausible-but-wrong implementation must fail.
+5. `python -m eval_harness run --suite <suite> --prompt <version> --model haiku`
 
 ### Sandboxed execution trust model
 
 `code_gen` is the first suite where "correct" means "passes tests" rather than "matches a label," so grading it means running model-generated code. `sandbox.py` does this with `subprocess` + a wall-clock timeout, no container - generated code runs directly on this machine, the same trust model this repo already extends to `claude -p`/`codex exec` output. That's a deliberate choice for a personal project benchmarking models already trusted enough to run other commands on this account; it would need real sandboxing (network-disabled container, resource caps) before ever grading untrusted third-party input. Any new suite that grades by execution should reuse `sandbox.run_pytest_check` (or extend it) rather than adding a second ad hoc execution path.
+
+Cases that would need to actually *trigger* a vulnerability to prove it (e.g. real command injection through a real shell) don't fit this trust model - `cg-14` grades a command-injection case by mocking `subprocess.run` and inspecting how it was called, never letting a malicious payload reach a real shell. Any new security-flavored case should follow that pattern (structural inspection via mocking) rather than attempting real exploitation, even sandboxed.
+
+### `code_gen.jsonl` case design (17 cases, as of 2026-07-23)
+
+`cg-01` through `cg-08` are baseline cases - each checks a single, mostly-obvious requirement from the spec (a boundary condition, an empty-input case, etc.). `cg-09` through `cg-17` were added specifically because the baseline set turned out to have almost no discriminating power across models (see the calibration table below) - they target known LLM code-gen failure modes the same way `bug_triage.jsonl`'s cases target known severity-judgment biases:
+
+- **Silent/ambiguous error contracts** (`cg-09`, `cg-10`) - spec explicitly says to raise on bad input; tests whether the model actually does, instead of defaulting to a silent `None`/default-value return. Direct analog to `bug_triage`'s "silent failure" theme (bt-10).
+- **Classic language footguns** (`cg-11`, `cg-12`) - the mutable-default-argument trap, and float/currency rounding that must be applied explicitly rather than left as raw arithmetic.
+- **Security-sensitive generation** (`cg-13`, `cg-14`) - SQL built via parameterized placeholders vs. f-string interpolation; a shell command invoked as an arg list vs. `shell=True` string interpolation. No `bug_triage` analog - this dimension is specific to a suite that actually writes code.
+- **Performance-aware specs** (`cg-15`) - the spec states a scale requirement (up to 200k elements); grading relies on the sandbox's own timeout to fail an O(n²) implementation on the large-input test case rather than needing bespoke timing assertions.
+- **Multi-branch rule-following** (`cg-16`, `cg-17`) - a spec with several ordered conditional rules stated narratively (English pluralization; case/whitespace-insensitive dedup), where a naive implementation satisfies the "obvious" cases but breaks on one that requires actually generalizing the rule rather than pattern-matching examples. Same family as `cg-08`.
+
+Every case here (baseline and adversarial) was validated two ways before being trusted as calibration data: a correct reference implementation passes its `test_code`, and at least one plausible-but-wrong implementation fails it - confirming the test actually discriminates rather than just being satisfiable by anything.
 
 ## Commands
 
