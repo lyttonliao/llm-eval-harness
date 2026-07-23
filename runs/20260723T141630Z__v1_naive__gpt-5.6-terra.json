@@ -1,0 +1,178 @@
+{
+  "prompt_version": "v1_naive",
+  "model": "gpt-5.6-terra",
+  "provider": "codex",
+  "total_cases": 15,
+  "severity_accuracy": 0.6666666666666666,
+  "category_accuracy": 0.8666666666666667,
+  "fully_correct_rate": 0.5333333333333333,
+  "avg_judge_score": 0.0,
+  "total_cost_usd": 0.0,
+  "results": [
+    {
+      "test_id": "bt-01",
+      "predicted_severity": "medium",
+      "predicted_category": "frontend",
+      "severity_correct": true,
+      "category_correct": true,
+      "judge_score": 0.0,
+      "judge_rationale": "judging disabled",
+      "cost_usd": 0.0,
+      "duration_ms": 4139
+    },
+    {
+      "test_id": "bt-02",
+      "predicted_severity": "high",
+      "predicted_category": "backend",
+      "severity_correct": false,
+      "category_correct": true,
+      "judge_score": 0.0,
+      "judge_rationale": "judging disabled",
+      "cost_usd": 0.0,
+      "duration_ms": 3543
+    },
+    {
+      "test_id": "bt-03",
+      "predicted_severity": "high",
+      "predicted_category": "infra",
+      "severity_correct": true,
+      "category_correct": true,
+      "judge_score": 0.0,
+      "judge_rationale": "judging disabled",
+      "cost_usd": 0.0,
+      "duration_ms": 3625
+    },
+    {
+      "test_id": "bt-04",
+      "predicted_severity": "high",
+      "predicted_category": "data",
+      "severity_correct": true,
+      "category_correct": true,
+      "judge_score": 0.0,
+      "judge_rationale": "judging disabled",
+      "cost_usd": 0.0,
+      "duration_ms": 3310
+    },
+    {
+      "test_id": "bt-05",
+      "predicted_severity": "medium",
+      "predicted_category": "frontend",
+      "severity_correct": true,
+      "category_correct": true,
+      "judge_score": 0.0,
+      "judge_rationale": "judging disabled",
+      "cost_usd": 0.0,
+      "duration_ms": 3278
+    },
+    {
+      "test_id": "bt-06",
+      "predicted_severity": "high",
+      "predicted_category": "infra",
+      "severity_correct": false,
+      "category_correct": true,
+      "judge_score": 0.0,
+      "judge_rationale": "judging disabled",
+      "cost_usd": 0.0,
+      "duration_ms": 3201
+    },
+    {
+      "test_id": "bt-07",
+      "predicted_severity": "high",
+      "predicted_category": "backend",
+      "severity_correct": false,
+      "category_correct": true,
+      "judge_score": 0.0,
+      "judge_rationale": "judging disabled",
+      "cost_usd": 0.0,
+      "duration_ms": 3933
+    },
+    {
+      "test_id": "bt-08",
+      "predicted_severity": "high",
+      "predicted_category": "infra",
+      "severity_correct": true,
+      "category_correct": false,
+      "judge_score": 0.0,
+      "judge_rationale": "judging disabled",
+      "cost_usd": 0.0,
+      "duration_ms": 6276
+    },
+    {
+      "test_id": "bt-09",
+      "predicted_severity": "medium",
+      "predicted_category": "frontend",
+      "severity_correct": true,
+      "category_correct": true,
+      "judge_score": 0.0,
+      "judge_rationale": "judging disabled",
+      "cost_usd": 0.0,
+      "duration_ms": 3893
+    },
+    {
+      "test_id": "bt-10",
+      "predicted_severity": "high",
+      "predicted_category": "infra",
+      "severity_correct": true,
+      "category_correct": false,
+      "judge_score": 0.0,
+      "judge_rationale": "judging disabled",
+      "cost_usd": 0.0,
+      "duration_ms": 3176
+    },
+    {
+      "test_id": "bt-11",
+      "predicted_severity": "high",
+      "predicted_category": "infra",
+      "severity_correct": true,
+      "category_correct": true,
+      "judge_score": 0.0,
+      "judge_rationale": "judging disabled",
+      "cost_usd": 0.0,
+      "duration_ms": 6204
+    },
+    {
+      "test_id": "bt-12",
+      "predicted_severity": "low",
+      "predicted_category": "frontend",
+      "severity_correct": true,
+      "category_correct": true,
+      "judge_score": 0.0,
+      "judge_rationale": "judging disabled",
+      "cost_usd": 0.0,
+      "duration_ms": 3396
+    },
+    {
+      "test_id": "bt-13",
+      "predicted_severity": "high",
+      "predicted_category": "backend",
+      "severity_correct": false,
+      "category_correct": true,
+      "judge_score": 0.0,
+      "judge_rationale": "judging disabled",
+      "cost_usd": 0.0,
+      "duration_ms": 2910
+    },
+    {
+      "test_id": "bt-14",
+      "predicted_severity": "high",
+      "predicted_category": "data",
+      "severity_correct": true,
+      "category_correct": true,
+      "judge_score": 0.0,
+      "judge_rationale": "judging disabled",
+      "cost_usd": 0.0,
+      "duration_ms": 4399
+    },
+    {
+      "test_id": "bt-15",
+      "predicted_severity": "medium",
+      "predicted_category": "infra",
+      "severity_correct": false,
+      "category_correct": true,
+      "judge_score": 0.0,
+      "judge_rationale": "judging disabled",
+      "cost_usd": 0.0,
+      "duration_ms": 4611
+    }
+  ]
+}
