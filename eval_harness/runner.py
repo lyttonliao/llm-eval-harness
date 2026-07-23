@@ -39,15 +39,14 @@ def run_suite(suite: str, prompt_version: str, provider: str = "claude", model: 
 
     for i, case in enumerate(cases, 1):
         print(f"  [{i}/{len(cases)}] {case.id}...", end=" ", flush=True)
-        result = call_model(system_prompt, case.bug_report, model=model)
+        result = call_model(system_prompt, case.input, model=model)
 
         if result.error:
             print(f"ERROR: {result.error}")
             outputs.append(
                 ModelOutput(
-                    test_id=case.id, raw_text=result.text, predicted_severity=None,
-                    predicted_category=None, cost_usd=0.0, duration_ms=0,
-                    parse_error=result.error,
+                    test_id=case.id, raw_text=result.text, predicted={},
+                    cost_usd=0.0, duration_ms=0, parse_error=result.error,
                 )
             )
             continue
@@ -58,8 +57,7 @@ def run_suite(suite: str, prompt_version: str, provider: str = "claude", model: 
                 ModelOutput(
                     test_id=case.id,
                     raw_text=result.text,
-                    predicted_severity=parsed.get("severity"),
-                    predicted_category=parsed.get("category"),
+                    predicted=parsed,
                     cost_usd=result.cost_usd,
                     duration_ms=result.duration_ms,
                 )
@@ -69,9 +67,9 @@ def run_suite(suite: str, prompt_version: str, provider: str = "claude", model: 
             print(f"PARSE ERROR: {e}")
             outputs.append(
                 ModelOutput(
-                    test_id=case.id, raw_text=result.text, predicted_severity=None,
-                    predicted_category=None, cost_usd=result.cost_usd,
-                    duration_ms=result.duration_ms, parse_error=str(e),
+                    test_id=case.id, raw_text=result.text, predicted={},
+                    cost_usd=result.cost_usd, duration_ms=result.duration_ms,
+                    parse_error=str(e),
                 )
             )
 

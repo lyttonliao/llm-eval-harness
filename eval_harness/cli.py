@@ -36,7 +36,7 @@ def run_once(suite: str, prompt: str, provider: str, model: str, judge: bool) ->
         print("\nScoring (rule-based + judge)...")
     else:
         print("\nScoring (rule-based only)...")
-    results = score_all(cases, outputs, run_judge=judge)
+    results = score_all(suite, cases, outputs, run_judge=judge)
 
     summary = build_summary(prompt, model, results, provider=provider)
     saved_path = save_run(summary)
@@ -57,9 +57,10 @@ def compare(suite: str, prompt_a: str, prompt_b: str, provider: str, model: str,
 
     print(f"=== head-to-head: {prompt_a} vs {prompt_b} ({provider}/{model}) ===")
     print(f"{'metric':<20}{prompt_a:>18}{prompt_b:>18}")
+    for name in a.check_accuracies:
+        av, bv = a.check_accuracies[name], b.check_accuracies.get(name, 0.0)
+        print(f"{name + ' accuracy':<20}{av:>18.1%}{bv:>18.1%}")
     for label, key in [
-        ("severity accuracy", "severity_accuracy"),
-        ("category accuracy", "category_accuracy"),
         ("fully correct", "fully_correct_rate"),
         ("judge coherence", "avg_judge_score"),
         ("cost (usd)", "total_cost_usd"),

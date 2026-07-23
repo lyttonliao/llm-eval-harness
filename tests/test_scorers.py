@@ -2,13 +2,12 @@ from unittest.mock import patch
 
 from eval_harness.claude_cli import CliResult
 from eval_harness.schema import ModelOutput, TestCase
-from eval_harness.scorers import judge_score, rule_based_score, score_all
+from eval_harness.scorers import judge_score, rule_based_score_bug_triage, score_all
 
 CASE = TestCase(
     id="bt-01",
-    bug_report="Something broke.",
-    expected_severity="High",
-    expected_category="Backend",
+    input="Something broke.",
+    expected={"severity": "High", "category": "Backend"},
 )
 
 
@@ -16,8 +15,7 @@ def _output(**overrides) -> ModelOutput:
     defaults = dict(
         test_id="bt-01",
         raw_text='{"reasoning": "the API returns 500s", "severity": "high", "category": "backend"}',
-        predicted_severity="high",
-        predicted_category="backend",
+        predicted={"reasoning": "the API returns 500s", "severity": "high", "category": "backend"},
         cost_usd=0.001,
         duration_ms=500,
         parse_error="",
@@ -26,34 +24,36 @@ def _output(**overrides) -> ModelOutput:
     return ModelOutput(**defaults)
 
 
-# --- rule_based_score ---------------------------------------------------
+def _predicted(**overrides) -> dict:
+    defaults = {"reasoning": "the API returns 500s", "severity": "high", "category": "backend"}
+    defaults.update(overrides)
+    return defaults
+
+
+# --- rule_based_score_bug_triage --------------------------------------------
 
 
 def test_rule_based_score_matches_case_insensitively():
-    severity_ok, category_ok = rule_based_score(CASE, _output())
-    assert severity_ok is True
-    assert category_ok is True
+    checks = rule_based_score_bug_triage(CASE, _output())
+    assert checks == {"severity": True, "category": True}
 
 
 def test_rule_based_score_strips_surrounding_whitespace():
-    output = _output(predicted_severity="  high  ", predicted_category="  backend  ")
-    severity_ok, category_ok = rule_based_score(CASE, output)
-    assert severity_ok is True
-    assert category_ok is True
+    output = _output(predicted=_predicted(severity="  high  ", category="  backend  "))
+    checks = rule_based_score_bug_triage(CASE, output)
+    assert checks == {"severity": True, "category": True}
 
 
-def test_rule_based_score_handles_none_predictions():
-    output = _output(predicted_severity=None, predicted_category=None)
-    severity_ok, category_ok = rule_based_score(CASE, output)
-    assert severity_ok is False
-    assert category_ok is False
+def test_rule_based_score_handles_missing_predictions():
+    output = _output(predicted={"reasoning": "unclear"})
+    checks = rule_based_score_bug_triage(CASE, output)
+    assert checks == {"severity": False, "category": False}
 
 
 def test_rule_based_score_mismatch_is_false():
-    output = _output(predicted_severity="low", predicted_category="frontend")
-    severity_ok, category_ok = rule_based_score(CASE, output)
-    assert severity_ok is False
-    assert category_ok is False
+    output = _output(predicted=_predicted(severity="low", category="frontend"))
+    checks = rule_based_score_bug_triage(CASE, output)
+    assert checks == {"severity": False, "category": False}
 
 
 # --- judge_score ----------------------------------------------------------
@@ -123,10 +123,10 @@ def test_judge_score_handles_unparseable_model_reasoning_gracefully():
 
 
 def test_score_all_skips_cases_with_no_matching_output():
-    cases = [CASE, TestCase(id="bt-02", bug_report="x", expected_severity="low", expected_category="frontend")]
+    cases = [CASE, TestCase(id="bt-02", input="x", expected={"severity": "low", "category": "frontend"})]
     outputs = [_output(test_id="bt-01")]  # no output for bt-02
 
-    results = score_all(cases, outputs, run_judge=False)
+    results = score_all("bug_triage", cases, outputs, run_judge=False)
 
     assert len(results) == 1
     assert results[0].test_id == "bt-01"
@@ -136,7 +136,7 @@ def test_score_all_ignores_outputs_with_no_matching_case():
     cases = [CASE]
     outputs = [_output(test_id="bt-01"), _output(test_id="bt-99")]
 
-    results = score_all(cases, outputs, run_judge=False)
+    results = score_all("bug_triage", cases, outputs, run_judge=False)
 
     assert len(results) == 1
     assert results[0].test_id == "bt-01"
@@ -147,7 +147,7 @@ def test_score_all_run_judge_false_never_calls_claude():
     outputs = [_output()]
 
     with patch("eval_harness.scorers.call_claude") as mock_call:
-        results = score_all(cases, outputs, run_judge=False)
+        results = score_all("bug_triage", cases, outputs, run_judge=False)
 
     mock_call.assert_not_called()
     assert results[0].judge_score == 0.0
@@ -163,9 +163,8 @@ def test_score_all_run_judge_true_calls_claude_once_per_case():
         "eval_harness.scorers.call_claude",
         return_value=CliResult(text=judge_payload, cost_usd=0.001, duration_ms=100),
     ) as mock_call:
-        results = score_all(cases, outputs, run_judge=True)
+        results = score_all("bug_triage", cases, outputs, run_judge=True)
 
     mock_call.assert_called_once()
     assert results[0].judge_score == 0.7
-    assert results[0].severity_correct is True
-    assert results[0].category_correct is True
+    assert results[0].checks == {"severity": True, "category": True}

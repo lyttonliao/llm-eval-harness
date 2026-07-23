@@ -9,10 +9,8 @@ from eval_harness.schema import RunSummary, ScoredResult
 def _result(severity_correct=True, category_correct=True, judge_score=0.8, cost=0.001) -> ScoredResult:
     return ScoredResult(
         test_id="bt-01",
-        predicted_severity="high",
-        predicted_category="backend",
-        severity_correct=severity_correct,
-        category_correct=category_correct,
+        predicted={"severity": "high", "category": "backend"},
+        checks={"severity": severity_correct, "category": category_correct},
         judge_score=judge_score,
         judge_rationale="grounded",
         cost_usd=cost,
@@ -40,8 +38,8 @@ def test_build_summary_aggregates_correctly():
     summary = report.build_summary("v1_naive", "haiku", results)
 
     assert summary.total_cases == 3
-    assert summary.severity_accuracy == pytest.approx(2 / 3)
-    assert summary.category_accuracy == pytest.approx(1 / 3)
+    assert summary.check_accuracies["severity"] == pytest.approx(2 / 3)
+    assert summary.check_accuracies["category"] == pytest.approx(1 / 3)
     assert summary.fully_correct_rate == pytest.approx(1 / 3)
     assert summary.avg_judge_score == pytest.approx(1.5 / 3)
     assert summary.total_cost_usd == pytest.approx(0.06)
@@ -51,8 +49,7 @@ def test_build_summary_empty_results_does_not_divide_by_zero():
     summary = report.build_summary("v1_naive", "haiku", [])
 
     assert summary.total_cases == 0
-    assert summary.severity_accuracy == 0.0
-    assert summary.category_accuracy == 0.0
+    assert summary.check_accuracies == {}
     assert summary.fully_correct_rate == 0.0
     assert summary.avg_judge_score == 0.0
     assert summary.total_cost_usd == 0.0
@@ -104,8 +101,7 @@ def _write_run_file(runs_dir, timestamp: str, prompt_version: str, model: str, a
         "prompt_version": summary.prompt_version,
         "model": summary.model,
         "total_cases": summary.total_cases,
-        "severity_accuracy": summary.severity_accuracy,
-        "category_accuracy": summary.category_accuracy,
+        "check_accuracies": summary.check_accuracies,
         "fully_correct_rate": summary.fully_correct_rate,
         "avg_judge_score": summary.avg_judge_score,
         "total_cost_usd": summary.total_cost_usd,
@@ -190,3 +186,30 @@ def test_find_previous_run_defaults_provider_to_claude_for_pre_existing_run_file
 
     assert previous is not None
     assert previous.provider == "claude"
+
+
+def test_find_previous_run_migrates_pre_generalization_severity_category_fields(isolated_runs_dir):
+    """Run files saved before check_accuracies existed (pre-generalization,
+    e.g. the real files in runs/) have severity_accuracy/category_accuracy
+    fixed fields instead - find_previous_run must migrate them into
+    check_accuracies rather than raising KeyError."""
+    isolated_runs_dir.mkdir(exist_ok=True)
+    path = isolated_runs_dir / "20260101T000000Z__v1_naive__haiku.json"
+    payload = {
+        "prompt_version": "v1_naive",
+        "model": "haiku",
+        "provider": "claude",
+        "total_cases": 15,
+        "severity_accuracy": 0.6,
+        "category_accuracy": 1.0,
+        "fully_correct_rate": 0.6,
+        "avg_judge_score": 0.85,
+        "total_cost_usd": 0.05,
+        "results": [],
+    }
+    path.write_text(json.dumps(payload))
+
+    previous = report.find_previous_run("v1_naive", "haiku")
+
+    assert previous is not None
+    assert previous.check_accuracies == {"severity": 0.6, "category": 1.0}

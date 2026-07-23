@@ -12,8 +12,8 @@ def test_load_cases_parses_real_bug_triage_fixture():
     assert all(isinstance(c, TestCase) for c in cases)
     first = cases[0]
     assert first.id == "bt-01"
-    assert first.expected_severity == "medium"
-    assert first.expected_category == "frontend"
+    assert first.expected["severity"] == "medium"
+    assert first.expected["category"] == "frontend"
     # ids are unique
     assert len({c.id for c in cases}) == len(cases)
 
@@ -26,7 +26,7 @@ def test_load_prompt_reads_real_prompt_file():
 
 def _make_cases(n=2):
     return [
-        TestCase(id=f"bt-0{i}", bug_report=f"report {i}", expected_severity="high", expected_category="backend")
+        TestCase(id=f"bt-0{i}", input=f"report {i}", expected={"severity": "high", "category": "backend"})
         for i in range(1, n + 1)
     ]
 
@@ -46,8 +46,7 @@ def test_run_suite_error_path_records_parse_error_and_zero_cost():
     out = outputs[0]
     assert out.test_id == "bt-01"
     assert out.parse_error == "rate limited"
-    assert out.predicted_severity is None
-    assert out.predicted_category is None
+    assert out.predicted == {}
     assert out.cost_usd == 0.0
 
 
@@ -65,8 +64,7 @@ def test_run_suite_parse_error_path_when_output_is_not_json():
     out = outputs[0]
     assert out.test_id == "bt-01"
     assert out.parse_error != ""
-    assert out.predicted_severity is None
-    assert out.predicted_category is None
+    assert out.predicted == {}
     # cost/duration are still recorded even on parse failure - call succeeded, parsing didn't
     assert out.cost_usd == 0.002
     assert out.duration_ms == 400
@@ -86,8 +84,8 @@ def test_run_suite_happy_path_parses_severity_and_category():
     assert len(outputs) == 1
     out = outputs[0]
     assert out.test_id == "bt-01"
-    assert out.predicted_severity == "critical"
-    assert out.predicted_category == "backend"
+    assert out.predicted["severity"] == "critical"
+    assert out.predicted["category"] == "backend"
     assert out.cost_usd == 0.0031
     assert out.duration_ms == 800
     assert out.parse_error == ""
@@ -127,4 +125,4 @@ def test_run_suite_dispatches_to_codex_when_provider_is_codex():
     mock_codex.assert_called_once_with("sys prompt", "report 1", model="gpt-5")
     mock_claude.assert_not_called()
     assert len(outputs) == 1
-    assert outputs[0].predicted_severity == "low"
+    assert outputs[0].predicted["severity"] == "low"

@@ -11,12 +11,12 @@ def build_summary(
     prompt_version: str, model: str, results: list[ScoredResult], provider: str = "claude"
 ) -> RunSummary:
     n = len(results) or 1
+    check_names = results[0].checks.keys() if results else []
     return RunSummary(
         prompt_version=prompt_version,
         model=model,
         total_cases=len(results),
-        severity_accuracy=sum(r.severity_correct for r in results) / n,
-        category_accuracy=sum(r.category_correct for r in results) / n,
+        check_accuracies={name: sum(r.checks[name] for r in results) / n for name in check_names},
         fully_correct_rate=sum(r.fully_correct for r in results) / n,
         avg_judge_score=sum(r.judge_score for r in results) / n,
         total_cost_usd=sum(r.cost_usd for r in results),
@@ -39,18 +39,15 @@ def save_run(summary: RunSummary) -> Path:
         "model": summary.model,
         "provider": summary.provider,
         "total_cases": summary.total_cases,
-        "severity_accuracy": summary.severity_accuracy,
-        "category_accuracy": summary.category_accuracy,
+        "check_accuracies": summary.check_accuracies,
         "fully_correct_rate": summary.fully_correct_rate,
         "avg_judge_score": summary.avg_judge_score,
         "total_cost_usd": summary.total_cost_usd,
         "results": [
             {
                 "test_id": r.test_id,
-                "predicted_severity": r.predicted_severity,
-                "predicted_category": r.predicted_category,
-                "severity_correct": r.severity_correct,
-                "category_correct": r.category_correct,
+                "predicted": r.predicted,
+                "checks": r.checks,
                 "judge_score": r.judge_score,
                 "judge_rationale": r.judge_rationale,
                 "cost_usd": r.cost_usd,
@@ -61,6 +58,17 @@ def save_run(summary: RunSummary) -> Path:
     }
     path.write_text(json.dumps(payload, indent=2))
     return path
+
+
+def _check_accuracies_from_payload(data: dict) -> dict[str, float]:
+    """Run files saved before check_accuracies existed (see runs/ history
+    predating this generalization) used two fixed severity/category fields
+    instead - migrate them into the generic shape rather than requiring a
+    one-off rewrite of files under runs/, same pattern as the pre-Codex
+    "provider" default below."""
+    if "check_accuracies" in data:
+        return data["check_accuracies"]
+    return {"severity": data["severity_accuracy"], "category": data["category_accuracy"]}
 
 
 def find_previous_run(prompt_version: str, model: str, before: Path | None = None) -> RunSummary | None:
@@ -76,8 +84,7 @@ def find_previous_run(prompt_version: str, model: str, before: Path | None = Non
         prompt_version=data["prompt_version"],
         model=data["model"],
         total_cases=data["total_cases"],
-        severity_accuracy=data["severity_accuracy"],
-        category_accuracy=data["category_accuracy"],
+        check_accuracies=_check_accuracies_from_payload(data),
         fully_correct_rate=data["fully_correct_rate"],
         avg_judge_score=data["avg_judge_score"],
         total_cost_usd=data["total_cost_usd"],
@@ -97,14 +104,17 @@ def _fmt_delta(new: float, old: float) -> str:
 def print_report(summary: RunSummary, previous: RunSummary | None = None) -> None:
     print()
     print(f"=== {summary.prompt_version} / {summary.provider}/{summary.model} ({summary.total_cases} cases) ===")
+    for name, value in summary.check_accuracies.items():
+        label = f"{name} accuracy:"
+        prev_value = previous.check_accuracies.get(name) if previous else None
+        if prev_value is None:
+            print(f"{label:<22}{value:.1%}")
+        else:
+            print(f"{label:<22}{_fmt_delta(value, prev_value)}")
     if previous:
-        print(f"severity accuracy:    {_fmt_delta(summary.severity_accuracy, previous.severity_accuracy)}")
-        print(f"category accuracy:    {_fmt_delta(summary.category_accuracy, previous.category_accuracy)}")
         print(f"fully correct:        {_fmt_delta(summary.fully_correct_rate, previous.fully_correct_rate)}")
         print(f"avg judge coherence:  {_fmt_delta(summary.avg_judge_score, previous.avg_judge_score)}")
     else:
-        print(f"severity accuracy:    {summary.severity_accuracy:.1%}")
-        print(f"category accuracy:    {summary.category_accuracy:.1%}")
         print(f"fully correct:        {summary.fully_correct_rate:.1%}")
         print(f"avg judge coherence:  {summary.avg_judge_score:.2f}")
     print(f"total cost:           ${summary.total_cost_usd:.4f}")
@@ -113,10 +123,6 @@ def print_report(summary: RunSummary, previous: RunSummary | None = None) -> Non
     if failures:
         print(f"\n{len(failures)} case(s) missed:")
         for r in failures:
-            what = []
-            if not r.severity_correct:
-                what.append(f"severity->{r.predicted_severity}")
-            if not r.category_correct:
-                what.append(f"category->{r.predicted_category}")
-            print(f"  - {r.test_id}: wrong {', '.join(what)} (judge coherence {r.judge_score:.2f})")
+            failed_checks = [name for name, ok in r.checks.items() if not ok]
+            print(f"  - {r.test_id}: failed {failed_checks} (predicted={r.predicted}) (judge coherence {r.judge_score:.2f})")
     print()
