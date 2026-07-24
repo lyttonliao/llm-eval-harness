@@ -15,6 +15,7 @@ PATH).
 """
 
 import subprocess
+import sys
 import tempfile
 from pathlib import Path
 
@@ -28,7 +29,7 @@ def run_pytest_check(generated_code: str, test_code: str, timeout: int = 10) -> 
 
         try:
             proc = subprocess.run(
-                ["python3", "-m", "pytest", "test_solution.py", "-q"],
+                [sys.executable, "-m", "pytest", "test_solution.py", "-q"],
                 cwd=tmpdir,
                 capture_output=True,
                 text=True,
