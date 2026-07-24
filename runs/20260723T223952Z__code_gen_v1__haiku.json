@@ -1,0 +1,252 @@
+{
+  "prompt_version": "code_gen_v1",
+  "model": "haiku",
+  "provider": "claude",
+  "total_cases": 17,
+  "check_accuracies": {
+    "tests_passed": 1.0
+  },
+  "fully_correct_rate": 1.0,
+  "avg_judge_score": 0.9105882352941177,
+  "total_cost_usd": 0.338398,
+  "results": [
+    {
+      "test_id": "cg-01",
+      "predicted": {
+        "reasoning": "Use nested min/max to elegantly clamp the value: max(lo, min(value, hi)) ensures the result is at least lo and at most hi, handling all three cases (below, within, above range) in one expression.",
+        "code": "def clamp(value, lo, hi):\n    \"\"\"Return value restricted to the closed range [lo, hi].\"\"\"\n    return max(lo, min(value, hi))"
+      },
+      "checks": {
+        "tests_passed": true
+      },
+      "judge_score": 0.96,
+      "judge_rationale": "The reasoning is specific to the task (references the closed range [lo, hi] and explicitly maps the three cases from the spec), internally coherent (explains the nested min/max strategy and its effect), and soundly justifies the answer (correctly shows how each case\u2014below, within, above\u2014is handled by the composition); minimal deduction only because it doesn't trace through an example case, but one-sentence format makes that a minor omission.",
+      "cost_usd": 0.015716,
+      "duration_ms": 5217
+    },
+    {
+      "test_id": "cg-02",
+      "predicted": {
+        "reasoning": "Filter the input to only alphanumeric characters (after lowercasing), then compare the filtered string with its reverse.",
+        "code": "def is_palindrome(s):\n    filtered = ''.join(c for c in s.lower() if c.isalnum())\n    return filtered == filtered[::-1]"
+      },
+      "checks": {
+        "tests_passed": true
+      },
+      "judge_score": 0.95,
+      "judge_rationale": "The reasoning is both internally coherent (the code directly implements the stated approach) and tightly grounded in task specifics: it explicitly references lowercasing, alphanumeric filtering (matching the task's 'letter or digit'), and reverse-comparison (matching 'reads the same forwards and backwards'), with no generic filler or unsupported claims.",
+      "cost_usd": 0.016824,
+      "duration_ms": 6681
+    },
+    {
+      "test_id": "cg-03",
+      "predicted": {
+        "reasoning": "Check if the list is empty and return None; otherwise, return sum divided by length to compute the arithmetic mean.",
+        "code": "def average(nums):\n    if not nums:\n        return None\n    return sum(nums) / len(nums)"
+      },
+      "checks": {
+        "tests_passed": true
+      },
+      "judge_score": 0.95,
+      "judge_rationale": "The reasoning is internally coherent and tightly grounded in the task: it names the specific empty-list requirement that triggered the `None` return, ties the sum/divide-by-length operation to the definition of arithmetic mean, and the code accurately implements each step the reasoning describes\u2014no gap between reasoning and answer.",
+      "cost_usd": 0.015047,
+      "duration_ms": 4336
+    },
+    {
+      "test_id": "cg-04",
+      "predicted": {
+        "reasoning": "Check divisibility by 400 (overrides the century rule), then apply the standard 4-year rule excluding centuries.",
+        "code": "def is_leap_year(year):\n    return year % 400 == 0 or (year % 4 == 0 and year % 100 != 0)"
+      },
+      "checks": {
+        "tests_passed": true
+      },
+      "judge_score": 0.88,
+      "judge_rationale": "The reasoning is specific to the problem (names the 400 divisibility check and the century-exclusion logic) and maps directly to the code structure (OR with two branches); however, it doesn't explicitly justify why checking 400 first as an override actually works with the OR operator, which is a minor gap in the logical chain.",
+      "cost_usd": 0.016390000000000002,
+      "duration_ms": 6558
+    },
+    {
+      "test_id": "cg-05",
+      "predicted": {
+        "reasoning": "Check for zero divisor before performing division, raising ValueError with the specified message if detected.",
+        "code": "def safe_divide(a, b):\n    if b == 0:\n        raise ValueError('division by zero')\n    return a / b"
+      },
+      "checks": {
+        "tests_passed": true
+      },
+      "judge_score": 0.92,
+      "judge_rationale": "The reasoning directly maps to the task's specific requirements (check for zero divisor, raise ValueError with exact message 'division by zero') and the code implements exactly what was stated; only minor nitpick is it doesn't explicitly mention returning the division result, though that's clearly implied.",
+      "cost_usd": 0.015013,
+      "duration_ms": 3547
+    },
+    {
+      "test_id": "cg-06",
+      "predicted": {
+        "reasoning": "Recursively iterate through the input list, extending the result with flattened sublists and appending individual integers in order.",
+        "code": "def flatten(nested):\n    result = []\n    for item in nested:\n        if isinstance(item, list):\n            result.extend(flatten(item))\n        else:\n            result.append(item)\n    return result"
+      },
+      "checks": {
+        "tests_passed": true
+      },
+      "judge_score": 0.9,
+      "judge_rationale": "Reasoning precisely describes the two-branch algorithm (recurse+extend for lists, append for integers) and directly maps to the code logic; grounds the solution in task requirements (arbitrary depth via recursion, order preservation via sequential iteration) rather than generic statements.",
+      "cost_usd": 0.016069,
+      "duration_ms": 6058
+    },
+    {
+      "test_id": "cg-07",
+      "predicted": {
+        "reasoning": "Count word frequencies while tracking first occurrence position, normalize text by lowercasing and removing punctuation, then return the highest-count word, using earliest position as tiebreaker via min() with a key function.",
+        "code": "import string\n\ndef most_common_word(text):\n    # Convert to lowercase and remove punctuation\n    text = text.lower()\n    translator = str.maketrans('', '', string.punctuation)\n    cleaned_text = text.translate(translator)\n    words = cleaned_text.split()\n    \n    if not words:\n        return None\n    \n    # Count frequencies and track first occurrence\n    word_count = {}\n    first_index = {}\n    \n    for i, word in enumerate(words):\n        if word not in first_index:\n            first_index[word] = i\n        word_count[word] = word_count.get(word, 0) + 1\n    \n    # Find most common word, breaking ties by first occurrence\n    max_count = max(word_count.values())\n    return min(\n        (word for word, count in word_count.items() if count == max_count),\n        key=lambda w: first_index[w]\n    )"
+      },
+      "checks": {
+        "tests_passed": true
+      },
+      "judge_score": 0.94,
+      "judge_rationale": "The reasoning accurately maps onto the implementation's logic\u2014text normalization, frequency counting with position tracking, and the min() tiebreaker are all present and correctly described\u2014though it elides the sequential order (normalize\u2192count) that the code makes explicit.",
+      "cost_usd": 0.032077,
+      "duration_ms": 30532
+    },
+    {
+      "test_id": "cg-08",
+      "predicted": {
+        "reasoning": "Use regex with non-capturing optional groups to parse h/m/s components in order, extract them safely with `.group()` fallback to 0, and sum with conversion factors (3600/60/1).",
+        "code": "import re\n\ndef parse_duration(s):\n    match = re.match(r'^(?:(\\d+)h)?(?:(\\d+)m)?(?:(\\d+)s)?$', s)\n    if not match:\n        raise ValueError(f\"Invalid duration format: {s}\")\n    \n    hours = int(match.group(1) or 0)\n    minutes = int(match.group(2) or 0)\n    seconds = int(match.group(3) or 0)\n    \n    return hours * 3600 + minutes * 60 + seconds"
+      },
+      "checks": {
+        "tests_passed": true
+      },
+      "judge_score": 0.87,
+      "judge_rationale": "The reasoning correctly identifies the core approach (regex with optional groups, fallback extraction, conversion+sum) and is grounded in task specifics (h/m/s order, optional components, conversion factors 3600/60/1). The code faithfully implements the stated strategy. Minor imprecision: the regex uses both non-capturing groups `(?:...)?` (outer) and capturing groups `(\\d+)` (inner), but the reasoning conflates these as 'non-capturing optional groups'\u2014a terminology slip that doesn't undermine correctness or understanding of the actual solution.",
+      "cost_usd": 0.038128,
+      "duration_ms": 27352
+    },
+    {
+      "test_id": "cg-09",
+      "predicted": {
+        "reasoning": "Simple accessor with explicit validation \u2014 check key presence upfront and raise KeyError with formatted message if missing, avoiding silent None returns.",
+        "code": "def get_config(settings, key):\n    if key not in settings:\n        raise KeyError(f'missing config key: {key}')\n    return settings[key]"
+      },
+      "checks": {
+        "tests_passed": true
+      },
+      "judge_score": 0.96,
+      "judge_rationale": "Reasoning directly grounds each design choice in specific task requirements (explicit key-presence check, formatted KeyError message matching the example format, avoiding None returns), and the code perfectly implements the stated approach with no gap between what was claimed and what was delivered.",
+      "cost_usd": 0.015874,
+      "duration_ms": 5282
+    },
+    {
+      "test_id": "cg-10",
+      "predicted": {
+        "reasoning": "Check for None explicitly, strip and validate string type before attempting int() conversion, catch all exceptions and convert non-ValueError types to ValueError to meet the \"no other exception type propagates\" requirement.",
+        "code": "def parse_int_or_raise(s):\n    if s is None:\n        raise ValueError(\"Cannot parse None as integer\")\n    \n    try:\n        s_stripped = s.strip()\n    except AttributeError:\n        raise ValueError(\"Cannot parse non-string input as integer\")\n    \n    if not s_stripped:\n        raise ValueError(\"Cannot parse empty string as integer\")\n    \n    try:\n        return int(s_stripped)\n    except ValueError:\n        raise\n    except Exception:\n        raise ValueError(\"Cannot parse input as integer\")"
+      },
+      "checks": {
+        "tests_passed": true
+      },
+      "judge_score": 0.78,
+      "judge_rationale": "The reasoning accurately identifies the main task requirements (None checks, stripping, exception conversion) and the code handles common cases correctly, but there's a gap between the claimed 'catch all exceptions' and the actual implementation, which only catches AttributeError from .strip() \u2014 if s.strip() raises any other exception type, it would propagate uncaught, violating the 'no other exception type propagates' requirement.",
+      "cost_usd": 0.032821,
+      "duration_ms": 31701
+    },
+    {
+      "test_id": "cg-11",
+      "predicted": {
+        "reasoning": "Avoid the mutable default argument trap by checking if collection is None and creating a fresh list each time, ensuring each call without an explicit collection starts fresh.",
+        "code": "def add_item(item, collection=None):\n    if collection is None:\n        collection = []\n    collection.append(item)\n    return collection"
+      },
+      "checks": {
+        "tests_passed": true
+      },
+      "judge_score": 0.92,
+      "judge_rationale": "The reasoning correctly identifies the mutable default argument trap as the specific pitfall this task tests, accurately describes the mechanism (None check creates fresh lists), and directly justifies why the solution prevents state leakage across calls\u2014all grounded in the actual requirement rather than generic pattern-matching.",
+      "cost_usd": 0.016313,
+      "duration_ms": 5801
+    },
+    {
+      "test_id": "cg-12",
+      "predicted": {
+        "reasoning": "Calculate subtotal from unit price and quantity, apply tax rate as a multiplier to that subtotal, then round to exactly 2 decimal places using Python's built-in round function.",
+        "code": "def total_price(unit_price, quantity, tax_rate):\n    subtotal = unit_price * quantity\n    total_with_tax = subtotal * (1 + tax_rate)\n    return round(total_with_tax, 2)"
+      },
+      "checks": {
+        "tests_passed": true
+      },
+      "judge_score": 0.95,
+      "judge_rationale": "The reasoning precisely describes the three steps the code implements in order (subtotal calculation, tax multiplier application, rounding), with each step grounded in specific task requirements (unit_price/quantity, tax_rate parameter, 2-decimal rounding), and the code faithfully executes what the reasoning claims\u2014the only minor gap is that 'apply tax rate as a multiplier' could be fractionally more explicit about the (1 + tax_rate) formula, but it's mathematically clear in context.",
+      "cost_usd": 0.016186,
+      "duration_ms": 5518
+    },
+    {
+      "test_id": "cg-13",
+      "predicted": {
+        "reasoning": "Build a parameterized SQL query with a ? placeholder and return the query string paired with a single-element tuple containing the username, letting the database driver handle all escaping.",
+        "code": "def build_user_query(username):\n    query = \"SELECT * FROM users WHERE username = ?\"\n    params = (username,)\n    return (query, params)\n"
+      },
+      "checks": {
+        "tests_passed": true
+      },
+      "judge_score": 0.92,
+      "judge_rationale": "The reasoning directly references task-specific details (? placeholder, single-element tuple, database driver escaping) and logically justifies the implementation, which correctly realizes all stated requirements; the explanation is tight but complete for a one-sentence summary.",
+      "cost_usd": 0.017003,
+      "duration_ms": 7507
+    },
+    {
+      "test_id": "cg-14",
+      "predicted": {
+        "reasoning": "Use subprocess.run with the command as a list argument and text=True to safely capture stdout as a string, ensuring path characters are never interpreted by a shell.",
+        "code": "import subprocess\n\ndef list_directory(path):\n    result = subprocess.run([\"ls\", \"-la\", path], capture_output=True, text=True)\n    return result.stdout"
+      },
+      "checks": {
+        "tests_passed": true
+      },
+      "judge_score": 0.82,
+      "judge_rationale": "The reasoning correctly identifies the key security requirement (list argument prevents shell interpretation of path) and the output requirement (text=True for string), but omits capture_output=True which is necessary to actually capture stdout\u2014the reasoning conflates text=True as sufficient for string capture when it's only the encoding step.",
+      "cost_usd": 0.016465999999999998,
+      "duration_ms": 6604
+    },
+    {
+      "test_id": "cg-15",
+      "predicted": {
+        "reasoning": "Use a single-pass hash set to track seen elements and check if each element's complement (target - current) exists; O(n) time and space beats O(n\u00b2) nested loop for 200k elements.",
+        "code": "def has_pair_with_sum(nums, target):\n    seen = set()\n    for num in nums:\n        complement = target - num\n        if complement in seen:\n            return True\n        seen.add(num)\n    return False"
+      },
+      "checks": {
+        "tests_passed": true
+      },
+      "judge_score": 0.96,
+      "judge_rationale": "Reasoning is specific and directly grounded in the code: it names the exact data structure (hash set), describes the precise algorithm (single-pass tracking seen elements and checking complements), provides concrete complexity justification (O(n) vs O(n\u00b2) for the 200k constraint), and the code implements exactly this approach with no contradiction or unsupported claims.",
+      "cost_usd": 0.015602999999999999,
+      "duration_ms": 4445
+    },
+    {
+      "test_id": "cg-16",
+      "predicted": {
+        "reasoning": "Implement pluralization with the three rule branches in order (consonant+y \u2192 ies, s/x/ch/sh \u2192 es, else \u2192 s), checking count first for the singular case.",
+        "code": "def pluralize(word, count):\n    if count == 1:\n        return word\n    \n    # Words ending in consonant + 'y': change 'y' to 'ies'\n    if len(word) >= 2 and word[-1] == 'y':\n        vowels = 'aeiou'\n        if word[-2] not in vowels:\n            return word[:-1] + 'ies'\n    \n    # Words ending in 's', 'x', 'ch', or 'sh': append 'es'\n    if word.endswith(('s', 'x')):\n        return word + 'es'\n    if word.endswith(('ch', 'sh')):\n        return word + 'es'\n    \n    # Everything else: append 's'\n    return word + 's'"
+      },
+      "checks": {
+        "tests_passed": true
+      },
+      "judge_score": 0.88,
+      "judge_rationale": "The reasoning directly maps to the task's three-rule hierarchy and is grounded in specific transformations (consonant+y \u2192 ies, s/x/ch/sh \u2192 es, else \u2192 s) with the count-first check; the code implementation follows exactly this structure, making the reasoning both internally coherent and specifically justified rather than generic.",
+      "cost_usd": 0.026504,
+      "duration_ms": 21987
+    },
+    {
+      "test_id": "cg-17",
+      "predicted": {
+        "reasoning": "Maintain a set of normalized (lowercase/stripped) strings seen so far to detect duplicates in O(1), while preserving the original form of kept items in a result list built in single pass.",
+        "code": "def dedupe_preserve_order(items):\n    seen = set()\n    result = []\n    for item in items:\n        normalized = item.strip().lower()\n        if normalized not in seen:\n            seen.add(normalized)\n            result.append(item)\n    return result"
+      },
+      "checks": {
+        "tests_passed": true
+      },
+      "judge_score": 0.92,
+      "judge_rationale": "The reasoning directly maps to the code's strategy (set tracks normalized forms, result list holds originals) and explicitly addresses all task-specific constraints: normalization via strip/lowercase, preservation of original form, and first-occurrence-keeping via single pass\u2014no generic handwaving.",
+      "cost_usd": 0.016364,
+      "duration_ms": 5846
+    }
+  ]
+}

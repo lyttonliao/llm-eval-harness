@@ -1,0 +1,270 @@
+{
+  "prompt_version": "code_gen_v1",
+  "model": "opus",
+  "provider": "claude",
+  "total_cases": 17,
+  "check_accuracies": {
+    "tests_passed": 1.0
+  },
+  "fully_correct_rate": 1.0,
+  "avg_judge_score": 0.7941176470588235,
+  "total_cost_usd": 1.527098,
+  "total_tokens": 0,
+  "results": [
+    {
+      "test_id": "cg-01",
+      "predicted": {
+        "reasoning": "Use min/max to restrict value to the closed range [lo, hi].",
+        "code": "def clamp(value, lo, hi):\n    return max(lo, min(value, hi))\n"
+      },
+      "checks": {
+        "tests_passed": true
+      },
+      "judge_score": 0.68,
+      "judge_rationale": "The reasoning is task-specific (references 'closed range [lo, hi]' directly) and coherent with the implementation, but underspecified: it identifies the technique (min/max) without explaining why this specific composition order (max of lo and min of value and hi) achieves the goal, so the reasoning could theoretically justify other incorrect min/max arrangements too.",
+      "cost_usd": 0.08807200000000001,
+      "duration_ms": 2128,
+      "token_usage": {}
+    },
+    {
+      "test_id": "cg-02",
+      "predicted": {
+        "reasoning": "Filter to alphanumeric lowercase characters and compare against its reverse.",
+        "code": "def is_palindrome(s):\n    filtered = [c.lower() for c in s if c.isalnum()]\n    return filtered == filtered[::-1]"
+      },
+      "checks": {
+        "tests_passed": true
+      },
+      "judge_score": 0.9,
+      "judge_rationale": "Reasoning accurately maps to the task requirements (lowercase, remove non-alphanumeric) and directly describes the code's two-step approach (filter then compare-reverse), with no disconnect between stated logic and implementation.",
+      "cost_usd": 0.08848800000000001,
+      "duration_ms": 2384,
+      "token_usage": {}
+    },
+    {
+      "test_id": "cg-03",
+      "predicted": {
+        "reasoning": "Return the mean as a float, guarding against an empty list by returning None.",
+        "code": "def average(nums):\n    if not nums:\n        return None\n    return sum(nums) / len(nums)\n"
+      },
+      "checks": {
+        "tests_passed": true
+      },
+      "judge_score": 0.94,
+      "judge_rationale": "The reasoning directly maps to both main task requirements (mean calculation and empty-list guard) and the code implements exactly what's stated; 'return the mean as a float' and 'guard against empty list by returning None' are specific task details, not generic, and the implementation validates both claims.",
+      "cost_usd": 0.087979,
+      "duration_ms": 3632,
+      "token_usage": {}
+    },
+    {
+      "test_id": "cg-04",
+      "predicted": {
+        "reasoning": "Apply Gregorian leap year rules directly with modulo checks.",
+        "code": "def is_leap_year(year):\n    return year % 4 == 0 and (year % 100 != 0 or year % 400 == 0)\n"
+      },
+      "checks": {
+        "tests_passed": true
+      },
+      "judge_score": 0.45,
+      "judge_rationale": "The reasoning is coherent but entirely generic\u2014it states what was done ('apply rules with modulo') without grounding in or justifying the specific three-part logic (base divisibility by 4, exception for centuries, re-inclusion for 400-divisible), and the model's implementation is correct, making this a 'right answer with reasoning that doesn't support it' case as flagged in the system instructions.",
+      "cost_usd": 0.088405,
+      "duration_ms": 2160,
+      "token_usage": {}
+    },
+    {
+      "test_id": "cg-05",
+      "predicted": {
+        "reasoning": "Check for zero divisor and raise ValueError, otherwise return the quotient.",
+        "code": "def safe_divide(a, b):\n    if b == 0:\n        raise ValueError('division by zero')\n    return a / b\n"
+      },
+      "checks": {
+        "tests_passed": true
+      },
+      "judge_score": 0.92,
+      "judge_rationale": "The reasoning directly maps to the task requirements (check for b==0, raise ValueError with the exact message, return quotient otherwise) and the implementation faithfully executes every step stated, with no gaps between what the reasoning claims and what the code does.",
+      "cost_usd": 0.088391,
+      "duration_ms": 2163,
+      "token_usage": {}
+    },
+    {
+      "test_id": "cg-06",
+      "predicted": {
+        "reasoning": "Recursively iterate, extending the result with flattened sublists or appending integers, preserving order.",
+        "code": "def flatten(nested):\n    result = []\n    for item in nested:\n        if isinstance(item, list):\n            result.extend(flatten(item))\n        else:\n            result.append(item)\n    return result"
+      },
+      "checks": {
+        "tests_passed": true
+      },
+      "judge_score": 0.92,
+      "judge_rationale": "The reasoning accurately describes the implementation's core logic (recursive iteration, type-based branching, extend vs. append distinction) and directly maps to the code; order preservation is explicitly called out, and the approach correctly handles arbitrary nesting depth, though the termination of recursion (non-list items) could have been stated more explicitly.",
+      "cost_usd": 0.08903299999999999,
+      "duration_ms": 2782,
+      "token_usage": {}
+    },
+    {
+      "test_id": "cg-07",
+      "predicted": {
+        "reasoning": "Extract lowercase word tokens via regex, count with Counter, and break ties by first appearance order which Counter/dict iteration preserves.",
+        "code": "import re\nfrom collections import Counter\n\n\ndef most_common_word(text):\n    words = re.findall(r\"[a-z0-9]+\", text.lower())\n    if not words:\n        return None\n    counts = Counter(words)\n    max_count = max(counts.values())\n    for word in words:\n        if counts[word] == max_count:\n            return word\n"
+      },
+      "checks": {
+        "tests_passed": true
+      },
+      "judge_score": 0.72,
+      "judge_rationale": "The reasoning correctly identifies the strategy (lowercase regex extraction, Counter, first-appearance tie-breaking) and maps to real task details, but it's technically inaccurate about how ties are broken\u2014it claims Counter/dict iteration preserves order, but the code actually iterates through the original `words` list to find the first word with max count, not through the Counter itself.",
+      "cost_usd": 0.09181900000000001,
+      "duration_ms": 5386,
+      "token_usage": {}
+    },
+    {
+      "test_id": "cg-08",
+      "predicted": {
+        "reasoning": "Use a regex anchored to match optional h, m, s groups in order and sum them, raising ValueError on invalid or empty input.",
+        "code": "import re\n\n_DURATION_RE = re.compile(r'^(?:(\\d+)h)?(?:(\\d+)m)?(?:(\\d+)s)?$')\n\n\ndef parse_duration(s):\n    match = _DURATION_RE.match(s)\n    if match is None or not any(match.groups()):\n        raise ValueError(f'invalid duration string: {s!r}')\n    hours, minutes, seconds = (int(g) if g is not None else 0 for g in match.groups())\n    return hours * 3600 + minutes * 60 + seconds\n"
+      },
+      "checks": {
+        "tests_passed": true
+      },
+      "judge_score": 0.87,
+      "judge_rationale": "The reasoning directly maps to the implementation (regex with optional h/m/s groups in order, summing with correct unit conversion, ValueError on invalid/empty), references specific task requirements (component order, optional components), and correctly handles all examples and edge cases; only minor slack is the task doesn't explicitly forbid empty input, though raising ValueError is a defensible choice.",
+      "cost_usd": 0.09417600000000001,
+      "duration_ms": 4555,
+      "token_usage": {}
+    },
+    {
+      "test_id": "cg-09",
+      "predicted": {
+        "reasoning": "Check membership and raise KeyError with a descriptive message including the key name, otherwise return the value.",
+        "code": "def get_config(settings, key):\n    if key not in settings:\n        raise KeyError(f\"missing config key: {key}\")\n    return settings[key]\n"
+      },
+      "checks": {
+        "tests_passed": true
+      },
+      "judge_score": 0.9,
+      "judge_rationale": "The reasoning directly and accurately describes the code's two branches: checking key membership, raising a KeyError with the key name included (a specific task requirement), and returning the value on success; it's grounded in task details rather than generic, though it could have explicitly mentioned avoiding None/defaults.",
+      "cost_usd": 0.089003,
+      "duration_ms": 2501,
+      "token_usage": {}
+    },
+    {
+      "test_id": "cg-10",
+      "predicted": {
+        "reasoning": "Strip whitespace and use int() inside a try, catching TypeError/ValueError (and anything else) to re-raise as ValueError.",
+        "code": "def parse_int_or_raise(s):\n    try:\n        return int(s.strip())\n    except ValueError:\n        raise\n    except Exception as exc:\n        raise ValueError(f\"cannot parse as integer: {s!r}\") from exc\n"
+      },
+      "checks": {
+        "tests_passed": true
+      },
+      "judge_score": 0.75,
+      "judge_rationale": "The reasoning correctly identifies the core strategy (strip, try-int, catch exceptions as ValueError) and is grounded in task requirements, but is imprecise about which exceptions actually occur\u2014it mentions catching `TypeError`, but `None.strip()` raises `AttributeError` first, and the code only re-raises `ValueError` directly while converting other `Exception` types, not handling `TypeError` specially. The code itself is functionally correct; the reasoning just oversimplifies the exception flow.",
+      "cost_usd": 0.090482,
+      "duration_ms": 3340,
+      "token_usage": {}
+    },
+    {
+      "test_id": "cg-11",
+      "predicted": {
+        "reasoning": "Use None as the default sentinel and create a new list inside the function to avoid the mutable-default-argument trap.",
+        "code": "def add_item(item, collection=None):\n    if collection is None:\n        collection = []\n    collection.append(item)\n    return collection\n"
+      },
+      "checks": {
+        "tests_passed": true
+      },
+      "judge_score": 0.87,
+      "judge_rationale": "The reasoning correctly identifies the mutable-default-argument pitfall by name and prescribes the standard fix (None sentinel + fresh list per call), which directly solves the stated requirement of isolation between calls; however, it references the pitfall implicitly rather than explicitly grounding the diagnosis in the task's specific constraint that 'each call made without collection must start fresh.'",
+      "cost_usd": 0.08888599999999999,
+      "duration_ms": 2748,
+      "token_usage": {}
+    },
+    {
+      "test_id": "cg-12",
+      "predicted": {
+        "reasoning": "Compute subtotal, apply tax via multiplier, round to 2 decimals with Decimal for correct half-up currency rounding then return as float.",
+        "code": "from decimal import Decimal, ROUND_HALF_UP\n\n\ndef total_price(unit_price, quantity, tax_rate):\n    subtotal = Decimal(str(unit_price)) * Decimal(str(quantity))\n    total = subtotal * (Decimal(1) + Decimal(str(tax_rate)))\n    return float(total.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP))"
+      },
+      "checks": {
+        "tests_passed": true
+      },
+      "judge_score": 0.88,
+      "judge_rationale": "The one-sentence reasoning is internally coherent and tightly grounded in specific task details: it correctly maps 'subtotal' to the explicit `unit_price * quantity` requirement, 'apply tax via multiplier' to the stated `tax_rate` application mechanism, 'round to 2 decimals' to the explicit rounding requirement, and 'return as float' to the return-type requirement. The mention of `Decimal` and `ROUND_HALF_UP` for currency rounding is a sound domain inference (not generic boilerplate) from the financial context implied by the 2-decimal requirement, and the implementation bears out every claim in the reasoning.",
+      "cost_usd": 0.092042,
+      "duration_ms": 3540,
+      "token_usage": {}
+    },
+    {
+      "test_id": "cg-13",
+      "predicted": {
+        "reasoning": "Return a static parameterized query string with a ? placeholder and the username wrapped in a single-element tuple.",
+        "code": "def build_user_query(username):\n    query = \"SELECT * FROM users WHERE username = ?\"\n    params = (username,)\n    return query, params\n"
+      },
+      "checks": {
+        "tests_passed": true
+      },
+      "judge_score": 0.95,
+      "judge_rationale": "The reasoning accurately identifies the two concrete requirements from the task (static '?' placeholder and username as single-element tuple) and correctly implies why this approach works (database-side escaping via params instead of string formatting); the implementation exactly matches what the reasoning describes.",
+      "cost_usd": 0.08938000000000001,
+      "duration_ms": 2328,
+      "token_usage": {}
+    },
+    {
+      "test_id": "cg-14",
+      "predicted": {
+        "reasoning": "Use subprocess.run with an argument list, capture_output and text mode, no shell=True, and return stdout.",
+        "code": "import subprocess\n\n\ndef list_directory(path):\n    result = subprocess.run(\n        [\"ls\", \"-la\", path],\n        capture_output=True,\n        text=True,\n    )\n    return result.stdout\n"
+      },
+      "checks": {
+        "tests_passed": true
+      },
+      "judge_score": 0.96,
+      "judge_rationale": "Reasoning is specific and directly supported by implementation: each element (argument list, capture_output, text mode, no shell=True, return stdout) maps cleanly to the code and addresses the task's core security requirement (preventing shell interpretation of path characters).",
+      "cost_usd": 0.08957000000000001,
+      "duration_ms": 2620,
+      "token_usage": {}
+    },
+    {
+      "test_id": "cg-15",
+      "predicted": {
+        "reasoning": "Use a hash set to track seen values, checking for the complement in O(n).",
+        "code": "def has_pair_with_sum(nums, target):\n    seen = set()\n    for num in nums:\n        if target - num in seen:\n            return True\n        seen.add(num)\n    return False"
+      },
+      "checks": {
+        "tests_passed": true
+      },
+      "judge_score": 0.87,
+      "judge_rationale": "The reasoning accurately describes the algorithm's core mechanism (hash set for complement checking) and correctly identifies O(n) complexity, which directly addresses the task's 200k-element performance constraint\u2014but it doesn't explicitly explain why the approach satisfies the 'distinct positions' requirement (ensured by checking *before* adding to the set) or connect the O(n) claim to the task's rejection of O(n\u00b2).",
+      "cost_usd": 0.089186,
+      "duration_ms": 2301,
+      "token_usage": {}
+    },
+    {
+      "test_id": "cg-16",
+      "predicted": {
+        "reasoning": "Check count then apply pluralization rules in order: y-after-consonant, sibilant endings, else append s.",
+        "code": "def pluralize(word, count):\n    if count == 1:\n        return word\n    if word.endswith('y') and len(word) > 1 and word[-2].lower() not in 'aeiou':\n        return word[:-1] + 'ies'\n    if word.endswith(('s', 'x', 'ch', 'sh')):\n        return word + 'es'\n    return word + 's'\n"
+      },
+      "checks": {
+        "tests_passed": true
+      },
+      "judge_score": 0.0,
+      "judge_rationale": "judge call failed: timeout",
+      "cost_usd": 0.091968,
+      "duration_ms": 3389,
+      "token_usage": {}
+    },
+    {
+      "test_id": "cg-17",
+      "predicted": {
+        "reasoning": "Track seen normalized keys in a set while iterating, appending the original item when its normalized form is new.",
+        "code": "def dedupe_preserve_order(items):\n    seen = set()\n    result = []\n    for item in items:\n        key = item.strip().lower()\n        if key not in seen:\n            seen.add(key)\n            result.append(item)\n    return result\n"
+      },
+      "checks": {
+        "tests_passed": true
+      },
+      "judge_score": 0.92,
+      "judge_rationale": "The reasoning accurately describes the implementation's core logic and directly addresses both key task constraints: using a normalized form for duplicate detection (strip+lowercase) while preserving and returning the original, non-normalized item\u2014the critical tension this problem requires solving.",
+      "cost_usd": 0.090218,
+      "duration_ms": 3762,
+      "token_usage": {}
+    }
+  ]
+}
