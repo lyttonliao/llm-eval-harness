@@ -1,6 +1,6 @@
 # llm-eval-harness
 
-A from-scratch eval harness for scoring prompt/model quality across multiple task shapes (bug-triage classification, code generation, more to come). Built as a learning project — the point is understanding evals well enough to trust (or distrust) later, more ambitious LLM projects, particularly `llm-task-router` (sibling repo, `../llm-task-router`), a cross-model-tier router that routes a task to the cheapest model tier clearing a per-category quality floor. `llm-task-router/classifier.py`'s task types (`triage, code_gen, summarization, multi_step, code_review, refactor, architecture`) are the roadmap for which suites get added here next. This repo's benchmark runs *are* how that quality floor gets measured — `llm-task-router/tiers.py`'s tier→model mapping should only be populated from real runs recorded here, never guessed. See the `calibrate-tier` skill in this repo for that workflow, and `llm-task-router/CLAUDE.md`'s "Adding a provider" section for the other side of it.
+A from-scratch eval harness for scoring prompt/model quality across multiple task shapes (bug-triage classification, code generation, summarization, more to come). Built as a learning project — the point is understanding evals well enough to trust (or distrust) later, more ambitious LLM projects, particularly `llm-task-router` (sibling repo, `../llm-task-router`), a cross-model-tier router that routes a task to the cheapest model tier clearing a per-category quality floor. `llm-task-router/classifier.py`'s task types (`triage, code_gen, summarization, multi_step, code_review, refactor, architecture`) are the roadmap for which suites get added here next. This repo's benchmark runs *are* how that quality floor gets measured — `llm-task-router/tiers.py`'s tier→model mapping should only be populated from real runs recorded here, never guessed. See the `calibrate-tier` skill in this repo for that workflow, and `llm-task-router/CLAUDE.md`'s "Adding a provider" section for the other side of it.
 
 ## Why it's built this way
 
@@ -15,8 +15,8 @@ A from-scratch eval harness for scoring prompt/model quality across multiple tas
 ```
 eval_harness/
   schema.py      - TestCase, ModelOutput, ScoredResult, RunSummary dataclasses (suite-agnostic)
-  cases/*.jsonl  - golden test sets, one JSON object per line, one file per suite (bug_triage, code_gen)
-  prompts/*.txt  - versioned system prompts under test, suite-scoped by naming convention (v1_naive/v2_rubric for bug_triage, code_gen_v1 for code_gen)
+  cases/*.jsonl  - golden test sets, one JSON object per line, one file per suite (bug_triage, code_gen, summarization)
+  prompts/*.txt  - versioned system prompts under test, suite-scoped by naming convention (v1_naive/v2_rubric for bug_triage, code_gen_v1 for code_gen, summarization_v1 for summarization)
   claude_cli.py  - subprocess wrapper around `claude -p --output-format json`
   codex_cli.py   - subprocess wrapper around `codex exec --output-last-message`
   jsonutil.py    - robust JSON extraction (models sometimes wrap/prefix JSON with stray text)
@@ -57,6 +57,35 @@ Cases that would need to actually *trigger* a vulnerability to prove it (e.g. re
 - **Multi-branch rule-following** (`cg-16`, `cg-17`) - a spec with several ordered conditional rules stated narratively (English pluralization; case/whitespace-insensitive dedup), where a naive implementation satisfies the "obvious" cases but breaks on one that requires actually generalizing the rule rather than pattern-matching examples. Same family as `cg-08`.
 
 Every case here (baseline and adversarial) was validated two ways before being trusted as calibration data: a correct reference implementation passes its `test_code`, and at least one plausible-but-wrong implementation fails it - confirming the test actually discriminates rather than just being satisfiable by anything.
+
+### Reference-free scoring: `summarization`'s fact-constraint grading
+
+`summarization` is the first suite with no golden label and no executable spec to grade against - there's no single "correct" summary to string-match. `rule_based_score_summarization` (in `scorers.py`) grades by fact-level constraints on the `expected` dict instead of a literal comparison:
+
+- `must_include`: a list of *groups*, each group a list of acceptable phrasings for one required fact (any phrase in the group counts as a match - summaries paraphrase, so this can't be a single literal string). All groups must match for `key_facts_included` to pass.
+- `must_exclude`: a flat list of substrings that must not appear - used for hallucinated facts, reversed directions of change (e.g. "increased" when the source decreased), or misattributed claims.
+- `max_words`: a word-count ceiling on the `summary` field, checked as `length_ok`.
+
+All three checks are always present in every case (even when a case's `must_include`/`must_exclude` is empty) so `check_accuracies` aggregates the same key set across cases, same as `bug_triage`'s fixed `severity`/`category` pair.
+
+This grading style is more paraphrase-fragile than `code_gen`'s executable tests - a model can state a required fact in wording the case author didn't anticipate and get marked wrong. The first real haiku run caught exactly this: `sum-08`'s `must_exclude` originally included the bare phrase `"root cause is"`, which matched the model's *correct* "the root cause is unknown" and scored a hallucination-free summary as a hallucination; `sum-05`'s `must_include` required `"rolled back"`/`"reverted"` but not the gerund `"rolling back"`, which a real model output used. Both were case-design bugs, not model failures - fixed by widening the phrase groups, not by changing the scorer. Any new `must_include`/`must_exclude` entry should be validated the same two ways as `code_gen` cases (a correct reference summary passes, a plausible-wrong one fails) *and* sanity-checked against at least one real model output before trusting a run's numbers - substring matching on free text has more false-positive surface than label match or test execution.
+
+### `summarization.jsonl` case design (16 cases, as of 2026-07-24)
+
+`sum-01` through `sum-06` are baseline cases - each checks one obvious requirement (a decision + date, a numeric fact, a list of independent items, etc.). `sum-07` through `sum-16` target known summarization failure modes, the same way `code_gen.jsonl`'s adversarial cases target known code-gen failure modes:
+
+- **Negation dropping** (`sum-07`) - source states a fix explicitly did *not* work; tests whether the model reports the true (negative) outcome instead of pattern-matching "a fix was applied" into "the fix worked."
+- **Hallucination bait** (`sum-08`) - source explicitly says the cause is unknown; tests whether the model invents a plausible-sounding cause anyway rather than preserving the uncertainty.
+- **Superseded information** (`sum-09`) - source gives a preliminary estimate, then corrects it; tests whether the summary reports the corrected figure as final rather than the stale initial one.
+- **Direction-of-change inversion** (`sum-10`) - tests whether "decreased"/"increased" survives compression, since both use similar-sounding numeric phrasing.
+- **Misattribution** (`sum-11`) - two named people hold opposing positions; tests whether the person-to-position mapping survives compression instead of getting swapped.
+- **Scope/qualifier dropping** (`sum-12`) - source narrows applicability (new customers only, one country, one date); tests whether an overgeneralized summary drops the qualifier.
+- **Critical detail buried in filler** (`sum-13`) - a routine-sounding update buries one urgent finding among unrelated administrative items; tests whether the summary surfaces it rather than treating everything as equally weighted.
+- **Exact-number preservation** (`sum-14`) - tests whether precise pass/fail counts survive, instead of rounding into vague language ("most passed, a few failed") that loses the actual scale.
+- **Explicit length-constraint compliance** (`sum-15`) - the source text itself issues a hard word-limit instruction; tests whether the standout fact survives an aggressive 15-word compression.
+- **Sentiment preservation** (`sum-16`) - source is unambiguously negative feedback; tests whether the summary keeps that framing rather than neutralizing it toward a more diplomatic tone.
+
+Every case (baseline and adversarial) was validated two ways before being trusted as calibration data: a hand-written correct summary passes all three checks, and a hand-written plausible-wrong summary fails at least one - same discipline as `code_gen`, adapted to free text via the fact-constraint grading described above.
 
 ## Commands
 
@@ -191,3 +220,50 @@ error, `avg_judge_score` reading 0.0 like a real bad score) - deleted
 rather than kept, per established practice. **Don't attempt the Codex leg
 of this sweep again before 2026-08-22** - it will just fail account-wide
 the same way regardless of which model is requested.
+
+## Router tier calibration status (`summarization` / `summarization_v1`, as of 2026-07-24)
+
+First judged benchmark for the new `summarization` suite (16 cases - see
+"`summarization.jsonl` case design" above), Claude tiers only. Codex leg
+skipped for the same account-wide quota lockout as the `code_gen` re-sweep
+above (blocked until 2026-08-22).
+
+| provider | model | key facts | no hallucination | length ok | fully correct | judge coherence |
+|---|---|---|---|---|---|---|
+| claude | haiku (cheap) | 100.0% | 100.0% | 87.5% | 87.5% | 0.85 |
+| claude | sonnet (mid) | 100.0% | 100.0% | 62.5% | 62.5% | 0.82 |
+| claude | opus (flagship) | 100.0% | 100.0% | 75.0% | 75.0% | 0.80 |
+
+**Verdict: non-monotonic result, and every miss on every tier is a
+`length_ok` failure, not a fact error - haiku is the strongest tier on this
+suite, not the weakest.** All three tiers hit 100% on `key_facts_included`
+and `no_hallucination` - none fabricated a fact, dropped a negation,
+flipped a direction of change, or misattributed a claim, on any of the 16
+adversarial cases. The entire spread comes from word-count-limit
+compliance: haiku missed 2/16 cases (`sum-05`, `sum-13`, both multi-fact
+incident-style sources where it didn't compress enough), opus missed 4/16
+(same two plus `sum-15`'s 15-word hard limit and `sum-16`), and sonnet
+missed 6/16 (the same set plus `sum-07` and `sum-09`) - sonnet was
+consistently the most verbose of the three, even though its summaries
+weren't more factually complete. This is a genuine tier-inverting result
+specific to this suite's grading, not noise: bigger/pricier Claude tiers
+default to more thorough, hedged prose, and this task's word-count
+constraints penalize that directly. `sum-15`'s judge coherence is the
+sharpest illustration - opus scored 0.15 there because its stated
+reasoning ("kept all numbers... within the 15-word limit") directly
+contradicted its own 18-word output, exactly the reasoning-vs-output
+mismatch `judge_score` exists to catch (see "Why two scorers, not one").
+
+**Don't read this as "use haiku for summarization" without checking prompt
+sensitivity first.** The prompt (`summarization_v1.txt`) already instructs
+"If the source gives an explicit length limit, honor it exactly," and
+sonnet/opus still overran it - a stronger prompt (e.g. restating the word
+budget as a hard numeric constraint right before the length-sensitive
+cases, or adding a self-check step) might close this gap without changing
+models. Re-run this suite against a revised prompt before trusting
+`haiku` > `opus` as a router-tier conclusion; right now this table shows a
+real prompt-following gap, not necessarily a capability gap.
+
+**Codex leg not run** - same account-wide Codex CLI quota lockout as the
+`code_gen` 17-case re-sweep (blocked until 2026-08-22, see above). Don't
+attempt it before then.

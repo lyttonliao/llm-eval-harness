@@ -1,0 +1,289 @@
+{
+  "prompt_version": "summarization_v1",
+  "model": "haiku",
+  "provider": "claude",
+  "total_cases": 16,
+  "check_accuracies": {
+    "key_facts_included": 1.0,
+    "no_hallucination": 1.0,
+    "length_ok": 0.875
+  },
+  "fully_correct_rate": 0.875,
+  "avg_judge_score": 0.85375,
+  "total_cost_usd": 0.0575104,
+  "total_tokens": 0,
+  "results": [
+    {
+      "test_id": "sum-01",
+      "predicted": {
+        "reasoning": "Preserved the specific dates (August 15 \u2192 September 5), the reason (landing page not ready), and the broader status note, without adding assumptions about impact or remediation.",
+        "summary": "Q3 marketing launch postponed from August 15 to September 5 due to the new landing page not being ready. All other deliverables remain on track."
+      },
+      "checks": {
+        "key_facts_included": true,
+        "no_hallucination": true,
+        "length_ok": true
+      },
+      "judge_score": 0.9,
+      "judge_rationale": "The reasoning accurately identifies and references three specific task elements (dates, root cause, status note) and correctly verifies each is preserved in the output; it also precisely captures what wasn't done (no speculative impact/remediation), grounding the claim that the summary stayed factual rather than inferential.",
+      "cost_usd": 0.0031983,
+      "duration_ms": 4552,
+      "token_usage": {}
+    },
+    {
+      "test_id": "sum-02",
+      "predicted": {
+        "reasoning": "Preserved all three status updates with their current state, blockers, and specific causes, ignoring the department labels since the facts themselves are the substance.",
+        "summary": "Backend: API rate limiting deployed to staging. Frontend: checkout redesign blocked on design review. Data: nightly ETL job failing for two days due to upstream schema change."
+      },
+      "checks": {
+        "key_facts_included": true,
+        "no_hallucination": true,
+        "length_ok": true
+      },
+      "judge_score": 0.82,
+      "judge_rationale": "The reasoning is specific and grounded\u2014it identifies concrete preservation strategies (three updates, current state, blockers, specific causes) present in the task\u2014and the answer does deliver on what was claimed; the minor tension is that department labels are still implicitly preserved by structure despite claiming to ignore them, but this doesn't undermine the core coherence of the approach.",
+      "cost_usd": 0.0032292,
+      "duration_ms": 4894,
+      "token_usage": {}
+    },
+    {
+      "test_id": "sum-03",
+      "predicted": {
+        "reasoning": "Preserved all quantitative facts (start/end revenue, percentage increase), time period (Q2), and stated driver (enterprise renewals) without adding explanation or cause.",
+        "summary": "Q2 revenue grew from $2.1M to $2.6M, a 23.8% increase driven mainly by enterprise renewals."
+      },
+      "checks": {
+        "key_facts_included": true,
+        "no_hallucination": true,
+        "length_ok": true
+      },
+      "judge_score": 0.8,
+      "judge_rationale": "The reasoning accurately identifies and grounds itself in specific task details ($2.1M/$2.6M, 23.8%, Q2, enterprise renewals), and the answer confirms it preserved exactly those elements\u2014but the reasoning is somewhat tautological, describing what was preserved rather than explaining a methodology for *how* or *why* those facts were selected, which weakens the justification slightly even though the logic is sound.",
+      "cost_usd": 0.0035856,
+      "duration_ms": 5698,
+      "token_usage": {}
+    },
+    {
+      "test_id": "sum-04",
+      "predicted": {
+        "reasoning": "Preserved the specific deadline (November 12, 2026), the affected party (merchants), the required action (webhook URL updates), the timing requirement (before that date), and the consequence of non-compliance (transaction failure).",
+        "summary": "All merchants must update their webhook URLs before November 12, 2026, when a payment provider migration is scheduled. Failure to update before that date will result in transaction failures."
+      },
+      "checks": {
+        "key_facts_included": true,
+        "no_hallucination": true,
+        "length_ok": true
+      },
+      "judge_score": 0.85,
+      "judge_rationale": "The reasoning correctly identifies five specific elements from the task text (deadline, affected party, required action, timing, consequence) and verifies they appear in the answer\u2014each claim is traceable to the original input. The reasoning is internally consistent and grounded, though somewhat descriptive rather than justificatory; it narrates what was preserved without explaining why those particular details constitute the core of a correct summary.",
+      "cost_usd": 0.0032027,
+      "duration_ms": 6000,
+      "token_usage": {}
+    },
+    {
+      "test_id": "sum-05",
+      "predicted": {
+        "reasoning": "Preserved all specific metrics (12%, 40 minutes), timestamps (July 10, 14:32 UTC), root cause (misconfigured health check), resolution action (rollback), and permanent fix plan (staging canary, next sprint) as each is operationally essential for incident tracking.",
+        "summary": "On July 10, a misconfigured load balancer health check caused 12% of API requests to fail for 40 minutes during peak traffic. The on-call engineer resolved the incident at 14:32 UTC by rolling back the load balancer config change. A permanent fix\u2014adding a staging canary check before load balancer config changes deploy\u2014is planned for next sprint."
+      },
+      "checks": {
+        "key_facts_included": true,
+        "no_hallucination": true,
+        "length_ok": false
+      },
+      "judge_score": 0.82,
+      "judge_rationale": "The reasoning lists eight specific operationally-critical details (metrics, timestamps, root cause, resolution, permanent fix) and accurately maps each to the corresponding content in the answer\u2014this is grounded rather than generic, and the answer does preserve all items claimed. The only minor weakness is that it doesn't articulate the task itself (summarization for what goal/audience), so while the reasoning describes what was kept and why, it doesn't justify why *that* was the right level of detail versus a shorter or longer summary.",
+      "cost_usd": 0.0039556,
+      "duration_ms": 6062,
+      "token_usage": {}
+    },
+    {
+      "test_id": "sum-06",
+      "predicted": {
+        "reasoning": "Preserved every specific fact: acquirer and target names, exact dollar amount, payment structure (all-cash), and stated strategic rationale (real-time data pipeline expansion).",
+        "summary": "Acme Corp acquired DataSync Inc. for $340 million in an all-cash deal to expand its presence in real-time data pipelines."
+      },
+      "checks": {
+        "key_facts_included": true,
+        "no_hallucination": true,
+        "length_ok": true
+      },
+      "judge_score": 0.9,
+      "judge_rationale": "Reasoning is internally coherent and each claimed fact\u2014acquirer/target names, exact dollar amount, payment structure, strategic rationale\u2014is directly verifiable in the source text; the answer faithfully instantiates what the reasoning describes.",
+      "cost_usd": 0.0039594,
+      "duration_ms": 6630,
+      "token_usage": {}
+    },
+    {
+      "test_id": "sum-07",
+      "predicted": {
+        "reasoning": "Preserved the key timeline (48 hours), the critical direction/outcome (NOT resolved, memory still climbing), and the current status (second root cause under investigation), without speculating on what that second cause might be.",
+        "summary": "The team applied a proposed fix for a memory leak and monitored it over 48 hours. The leak was NOT resolved\u2014memory usage continued to climb steadily. The team is now investigating a second root cause."
+      },
+      "checks": {
+        "key_facts_included": true,
+        "no_hallucination": true,
+        "length_ok": true
+      },
+      "judge_score": 0.87,
+      "judge_rationale": "The reasoning identifies and justifies four specific task elements (48-hour timeline, NOT resolved status, continued memory climbing, second-root-cause investigation) and explicitly notes what it avoids (speculation), with the answer faithfully delivering on each claim; the reasoning is grounded in the task text rather than generic, though it could have explained *why* these particular elements matter in context (signaling an active, unresolved problem).",
+      "cost_usd": 0.0031588,
+      "duration_ms": 5168,
+      "token_usage": {}
+    },
+    {
+      "test_id": "sum-08",
+      "predicted": {
+        "reasoning": "Preserved the specific error type (502), location (checkout page), frequency (intermittent), timeframe (since this morning), and current status (cause unknown, investigation in progress); resisted adding diagnostic speculation or resolution.",
+        "summary": "The checkout page has been intermittently returning 502 errors since this morning. The root cause remains unidentified; the on-call engineer is currently investigating logs."
+      },
+      "checks": {
+        "key_facts_included": true,
+        "no_hallucination": true,
+        "length_ok": true
+      },
+      "judge_score": 0.92,
+      "judge_rationale": "Reasoning is internally coherent and tightly grounded: each claim (preserved 502, location, intermittent frequency, timeframe, investigation status, avoided speculation) directly maps to specific task details and is demonstrably executed in the answer; the only minor gap is slight redundancy in listing each element rather than a more synthesized articulation.",
+      "cost_usd": 0.0031850000000000003,
+      "duration_ms": 4951,
+      "token_usage": {}
+    },
+    {
+      "test_id": "sum-09",
+      "predicted": {
+        "reasoning": "Preserved the specific numbers (500 vs. 42 customers), the direction of change (decrease from initial estimate), and the fact that an audit revealed the discrepancy\u2014capturing the key reversal in scope without inferring causes or implications.",
+        "summary": "Initial reports estimated 500 customers were affected by an outage. A full audit later found the actual number was much smaller: only 42 customers experienced any impact."
+      },
+      "checks": {
+        "key_facts_included": true,
+        "no_hallucination": true,
+        "length_ok": true
+      },
+      "judge_score": 0.9,
+      "judge_rationale": "The reasoning identifies and justifies three specific, verifiable elements from the task (the concrete numbers 500/42, the audit mechanism, the directional change), and the summary demonstrably preserves each one\u2014the claim aligns perfectly with the output and isn't generic or unsupported.",
+      "cost_usd": 0.0035722,
+      "duration_ms": 5655,
+      "token_usage": {}
+    },
+    {
+      "test_id": "sum-10",
+      "predicted": {
+        "reasoning": "Preserved the specific before/after metrics (420ms \u2192 110ms), the quantified improvement magnitude (74% reduction), and the stated cause (caching layer addition)\u2014all the facts that matter.",
+        "summary": "After adding a caching layer, average API latency decreased from 420ms to 110ms, a 74% reduction."
+      },
+      "checks": {
+        "key_facts_included": true,
+        "no_hallucination": true,
+        "length_ok": true
+      },
+      "judge_score": 0.82,
+      "judge_rationale": "The reasoning directly identifies three specific, verifiable elements from the task (420ms\u2192110ms metrics, 74% reduction, caching layer cause) and the answer confirms all three are preserved, making it internally coherent and tightly grounded in task details; the reasoning is slightly mechanical (describing what was kept rather than justifying why it matters) but appropriate for a straightforward summarization task.",
+      "cost_usd": 0.0033912000000000005,
+      "duration_ms": 4917,
+      "token_usage": {}
+    },
+    {
+      "test_id": "sum-11",
+      "predicted": {
+        "reasoning": "Preserved both positions in the disagreement (Priya's recommendation, Jordan's counterargument), the specific architectural proposal, and the explicit unresolved outcome, as these are all material facts about the design decision.",
+        "summary": "In a design review, Priya recommended switching to a queue-based architecture to handle traffic spikes. Jordan objected, arguing that the added operational complexity was not justified for the current scale. No decision was reached."
+      },
+      "checks": {
+        "key_facts_included": true,
+        "no_hallucination": true,
+        "length_ok": true
+      },
+      "judge_score": 0.87,
+      "judge_rationale": "The reasoning identifies four specific elements to preserve (Priya's recommendation, Jordan's counterargument, the architectural proposal, the unresolved status) and the answer faithfully contains all four, making the reasoning well-justified and internally coherent; the reasoning is grounded in concrete task details (the two speakers, queue-based architecture, operational complexity concern, current scale, no-decision outcome) rather than generic principles.",
+      "cost_usd": 0.0031899,
+      "duration_ms": 6751,
+      "token_usage": {}
+    },
+    {
+      "test_id": "sum-12",
+      "predicted": {
+        "reasoning": "Preserved the specific date (January 1, 2027), geographic scope (United States), and the three-way distinction of who is affected: new US customers after the date are subject to new pricing, while existing customers and international accounts are exempt.",
+        "summary": "New pricing applies only to new customers in the United States who sign up after January 1, 2027. Existing customers and international accounts are unaffected."
+      },
+      "checks": {
+        "key_facts_included": true,
+        "no_hallucination": true,
+        "length_ok": true
+      },
+      "judge_score": 0.9,
+      "judge_rationale": "The reasoning identifies three specific, extractable elements from the task (temporal boundary, geographic scope, three-way party distinction) and the answer verifiably preserves all three, making the reasoning both internally sound and genuinely grounded rather than generic.",
+      "cost_usd": 0.0035378000000000002,
+      "duration_ms": 5264,
+      "token_usage": {}
+    },
+    {
+      "test_id": "sum-13",
+      "predicted": {
+        "reasoning": "Preserved specific facts (three-week backup failure, alerting gap, scheduled follow-up timing) and the scope of the review while avoiding any invented causes, impact, or outcomes; flagged the unresolved/unknown status of root cause and recoverability.",
+        "summary": "A quarterly infrastructure review covered on-call rotation schedule updates, CDN contract renewal, and runbook wiki reorganization. In the appendix, the team discovered the primary database backup has been silently failing for three weeks with no alerting in place. A follow-up is scheduled for next week to address the backup failure and implement alerting; root cause and data recoverability status are not stated."
+      },
+      "checks": {
+        "key_facts_included": true,
+        "no_hallucination": true,
+        "length_ok": false
+      },
+      "judge_score": 0.87,
+      "judge_rationale": "The reasoning is internally coherent and tightly grounded in task specifics (three-week duration, alerting gap, next-week follow-up, review scope) rather than generic; it credibly maps to the answer produced, though it reads more as self-describing good-summarization practice ('avoided invented details') than deeply justifying each choice.",
+      "cost_usd": 0.004026200000000001,
+      "duration_ms": 6371,
+      "token_usage": {}
+    },
+    {
+      "test_id": "sum-14",
+      "predicted": {
+        "reasoning": "Preserved the exact test counts (47 total, 42 passed, 5 failed) and the specific root cause (single flaky third-party API mock responsible for all failures).",
+        "summary": "47 integration tests ran in CI; 42 passed and 5 failed. All five failures traced to the same flaky third-party API mock."
+      },
+      "checks": {
+        "key_facts_included": true,
+        "no_hallucination": true,
+        "length_ok": true
+      },
+      "judge_score": 0.82,
+      "judge_rationale": "Reasoning is grounded in specific task details (exact test counts 47/42/5, specific root cause: flaky third-party API mock) and internally coherent, but it's tautological\u2014merely restating what the answer contains ('preserved X') rather than explaining why those elements were selected or how they connect, so it describes rather than justifies.",
+      "cost_usd": 0.00343,
+      "duration_ms": 5083,
+      "token_usage": {}
+    },
+    {
+      "test_id": "sum-15",
+      "predicted": {
+        "reasoning": "Preserved all specific numbers (34 features, 112 bugs, 22\u21926 min deploy, 28 engineers) and the key directional change (headcount flat despite shipping velocity), staying exactly at the 15-word limit.",
+        "summary": "34 features shipped, 112 bugs fixed, deploy time cut 22\u21926 minutes, headcount flat at 28."
+      },
+      "checks": {
+        "key_facts_included": true,
+        "no_hallucination": true,
+        "length_ok": true
+      },
+      "judge_score": 0.72,
+      "judge_rationale": "Reasoning correctly identifies preserved numbers and the flat-headcount significance, with accurate word count, but overstates capturing 'despite shipping velocity' when that contrast is only implicit in the summary\u2014requires reader inference rather than explicit communication.",
+      "cost_usd": 0.005893099999999999,
+      "duration_ms": 8522,
+      "token_usage": {}
+    },
+    {
+      "test_id": "sum-16",
+      "predicted": {
+        "reasoning": "Preserved the three specific user complaints, the crash frequency quantification (1 in 10), and the overall negative sentiment without adding causes or solutions.",
+        "summary": "Mobile app redesign has generated overwhelmingly negative user feedback. The search bar has been removed, checkout flow now requires twice as many taps, and the app crashes on startup in approximately 1 in 10 sessions."
+      },
+      "checks": {
+        "key_facts_included": true,
+        "no_hallucination": true,
+        "length_ok": true
+      },
+      "judge_score": 0.88,
+      "judge_rationale": "The reasoning identifies three specific preservation goals (complaints, quantification, sentiment) and one constraint (avoid causes/solutions), then the answer demonstrably follows each\u2014search bar/checkout/crashes listed, '1 in 10' quantified, 'overwhelmingly negative' kept, no speculation added\u2014making the reasoning genuinely explanatory rather than post-hoc.",
+      "cost_usd": 0.0029954,
+      "duration_ms": 4504,
+      "token_usage": {}
+    }
+  ]
+}

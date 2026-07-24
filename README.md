@@ -12,12 +12,13 @@ type before live traffic is routed to it.
 
 ## What it evaluates
 
-Two suites demonstrate different evaluation shapes:
+Three suites demonstrate different evaluation shapes:
 
 | Suite | Cases | Model contract | Deterministic score |
 | --- | ---: | --- | --- |
 | `bug_triage` | 15 | JSON severity, category, and reasoning | Exact, case-insensitive severity and category match |
 | `code_gen` | 17 | JSON Python source and reasoning | Generated code passes the case's pytest test file |
+| `summarization` | 16 | JSON summary and reasoning | Required facts present, forbidden/hallucinated facts absent, word-count limit respected |
 
 Each result also receives an optional LLM-as-judge **reasoning-coherence**
 score. This complements exact-match scoring: a model can arrive at the right
@@ -56,6 +57,13 @@ same `v1_naive` prompt. Claude's fully-correct rate increased from 60.0% on
 Haiku to 66.7% on Sonnet and 73.3% on Opus. A rubric-oriented prompt variant
 reached 80.0% fully correct on Haiku in a separate recorded run.
 
+A 16-case `summarization` benchmark using the `summarization_v1` prompt found
+a non-monotonic result across Claude's tiers: Haiku scored 87.5% fully
+correct, Opus 75.0%, and Sonnet 62.5% - every miss was a word-count-limit
+violation, not a factual error (all three tiers hit 100% on the fact-inclusion
+and no-hallucination checks). Larger tiers here are more verbose, and this
+task rewards concision, so bigger isn't uniformly better on this suite.
+
 These are small, hand-authored evaluation sets—not statistically conclusive
 leaderboard results. They are useful calibration evidence and regression
 signals, not claims of broad model superiority.
@@ -81,6 +89,10 @@ uv run python -m eval_harness run --prompt v1_naive --model haiku
 # Run code generation without the optional judge pass
 uv run python -m eval_harness run \
   --suite code_gen --prompt code_gen_v1 --model haiku --no-judge
+
+# Evaluate the summarization suite with Claude Sonnet
+uv run python -m eval_harness run \
+  --suite summarization --prompt summarization_v1 --model sonnet
 
 # Evaluate an explicitly named Codex model
 uv run python -m eval_harness run \
