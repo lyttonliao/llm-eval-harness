@@ -155,12 +155,68 @@ def rule_based_score_refactor(case: TestCase, output: ModelOutput) -> dict[str, 
     return {"tests_passed": tests_passed, "smells_removed": smells_removed}
 
 
+def rule_based_score_multi_step(case: TestCase, output: ModelOutput) -> dict[str, bool]:
+    """No golden plan to string-match, so grading combines fact-constraint groups
+    (same shape as summarization/code_review) with a new axis this suite exists to
+    test: relative step ORDER, not just step presence. required_steps is a list of
+    groups (acceptable phrasings, matched against "phase detail" per step - reviews
+    of a plan paraphrase just like code review findings do). ordering_constraints is
+    a list of [earlier_group_idx, later_group_idx] pairs into required_steps; a
+    constraint is satisfied if the earliest step matching the earlier group has a
+    lower index in output.steps than the earliest step matching the later group.
+
+    ordering_correct only evaluates constraints where BOTH referenced groups were
+    actually matched somewhere in the output - a constraint referencing a group the
+    model never produced at all can't be judged as correctly or incorrectly ordered,
+    same reasoning as code_review's severity_correct only scoring groups that were
+    caught. But mirroring severity_correct's other half: if a case HAS ordering
+    constraints and literally none of them were evaluable (every referenced group
+    missing), ordering_correct fails outright rather than vacuously passing - that
+    combination would otherwise read as a clean order on a plan that's missing the
+    steps needed to have an order at all. Cases with no ordering_constraints (pure
+    coverage/false-positive cases) get a vacuous pass, same precedent as
+    refactor/summarization's always-present, sometimes-empty checks.
+    """
+    steps = [s for s in (output.predicted.get("steps") or []) if isinstance(s, dict)]
+    texts = [f"{s.get('phase') or ''} {s.get('detail') or ''}".lower() for s in steps]
+
+    def first_match_index(phrases: list[str]) -> int | None:
+        for i, text in enumerate(texts):
+            if any(phrase.lower() in text for phrase in phrases):
+                return i
+        return None
+
+    group_indices = [first_match_index(group["phrases"]) for group in case.expected["required_steps"]]
+    step_coverage = all(idx is not None for idx in group_indices)
+
+    constraint_results = []
+    for early, late in case.expected["ordering_constraints"]:
+        early_idx, late_idx = group_indices[early], group_indices[late]
+        if early_idx is not None and late_idx is not None:
+            constraint_results.append(early_idx < late_idx)
+
+    if case.expected["ordering_constraints"] and not constraint_results:
+        ordering_correct = False
+    else:
+        ordering_correct = all(constraint_results) if constraint_results else True
+
+    all_text = " ".join(texts)
+    no_false_positives = not any(phrase.lower() in all_text for phrase in case.expected["must_not_include"])
+
+    return {
+        "step_coverage": step_coverage,
+        "ordering_correct": ordering_correct,
+        "no_false_positives": no_false_positives,
+    }
+
+
 _RULE_SCORERS = {
     "bug_triage": rule_based_score_bug_triage,
     "code_gen": rule_based_score_code_gen,
     "summarization": rule_based_score_summarization,
     "code_review": rule_based_score_code_review,
     "refactor": rule_based_score_refactor,
+    "multi_step": rule_based_score_multi_step,
 }
 
 

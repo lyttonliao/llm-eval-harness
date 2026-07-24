@@ -7,8 +7,9 @@ class TestCase:
     input: str
     expected: dict  # suite-specific: e.g. {"severity": ..., "category": ...}, {"test_code": ...},
     # {"must_include": [[...]], "must_exclude": [...], "max_words": ...},
-    # {"must_flag": [{"phrases": [...], "severity": ...}], "must_not_flag": [...]}, or
-    # {"test_code": ..., "structural_checks": [{"type": "not_contains"|"max_occurrences", "pattern": ..., "max": ...}]}
+    # {"must_flag": [{"phrases": [...], "severity": ...}], "must_not_flag": [...]},
+    # {"test_code": ..., "structural_checks": [{"type": "not_contains"|"max_occurrences", "pattern": ..., "max": ...}]}, or
+    # {"required_steps": [{"phrases": [...]}], "ordering_constraints": [[early_idx, late_idx]], "must_not_include": [...]}
     # - values aren't always str
     notes: str = ""  # why this case is here / what it's meant to catch
 

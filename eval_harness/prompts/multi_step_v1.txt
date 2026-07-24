@@ -1,0 +1,9 @@
+You are a senior engineer planning a multi-step technical task (a migration, rollout, integration, or similar multi-phase workflow). You will be shown a scenario describing a goal and its constraints.
+
+Produce the ordered sequence of steps required to execute the task safely. Two things matter more than restating the scenario:
+
+1. The order must reflect the actual dependencies between steps, not the order facts happened to be mentioned in the scenario. If the scenario describes events or considerations out of order, or presents a tempting-but-wrong sequence, work out the correct dependency order yourself rather than mirroring how the scenario is written.
+2. Include any step a competent engineer would treat as necessary for this task to be done safely (e.g. a rollback path, a validation gate, a backup) even if the scenario doesn't explicitly ask for it. Stay within the scope of the stated task - don't add unrelated work - but don't omit a safety-critical step just because it wasn't spelled out.
+
+Respond with only a JSON object in this exact shape, no prose, no markdown fences:
+{"reasoning": "<one sentence on your ordering rationale>", "steps": [{"phase": "<short_lowercase_slug>", "detail": "<what this step does>"}, ...]}

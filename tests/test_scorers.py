@@ -7,6 +7,7 @@ from eval_harness.scorers import (
     rule_based_score_bug_triage,
     rule_based_score_code_gen,
     rule_based_score_code_review,
+    rule_based_score_multi_step,
     rule_based_score_refactor,
     rule_based_score_summarization,
     score_all,
@@ -348,6 +349,135 @@ def test_rule_based_score_refactor_handles_missing_code_key():
         checks = rule_based_score_refactor(REFACTOR_CASE, output)
     assert checks["tests_passed"] is False
     mock_check.assert_called_once_with("", REFACTOR_CASE.expected["test_code"])
+
+
+# --- rule_based_score_multi_step --------------------------------------------
+
+MULTI_STEP_CASE = TestCase(
+    id="ms-01",
+    input="Plan a migration of a status column, given read/write traffic must not be interrupted.",
+    expected={
+        "required_steps": [
+            {"phrases": ["backfill", "backfilling"]},
+            {"phrases": ["cutover", "cut over"]},
+            {"phrases": ["rollback", "kill switch"]},
+        ],
+        "ordering_constraints": [[0, 1]],
+        "must_not_include": ["drop the old table", "delete legacy table"],
+    },
+)
+
+
+def _multi_step_output(steps: list[dict]) -> ModelOutput:
+    return ModelOutput(
+        test_id="ms-01", raw_text="{}", predicted={"reasoning": "x", "steps": steps},
+        cost_usd=0.001, duration_ms=500,
+    )
+
+
+def test_rule_based_score_multi_step_all_checks_pass():
+    output = _multi_step_output([
+        {"phase": "backfill", "detail": "backfill historical data into the new column"},
+        {"phase": "cutover", "detail": "cut over reads to the new column"},
+        {"phase": "rollback", "detail": "keep a rollback plan ready"},
+    ])
+    checks = rule_based_score_multi_step(MULTI_STEP_CASE, output)
+    assert checks == {"step_coverage": True, "ordering_correct": True, "no_false_positives": True}
+
+
+def test_rule_based_score_multi_step_fails_coverage_when_a_group_is_missing():
+    output = _multi_step_output([
+        {"phase": "backfill", "detail": "backfill historical data"},
+        {"phase": "cutover", "detail": "cut over reads"},
+    ])
+    checks = rule_based_score_multi_step(MULTI_STEP_CASE, output)
+    assert checks["step_coverage"] is False
+
+
+def test_rule_based_score_multi_step_fails_ordering_when_steps_are_reversed():
+    output = _multi_step_output([
+        {"phase": "cutover", "detail": "cut over reads"},
+        {"phase": "backfill", "detail": "backfill historical data"},
+        {"phase": "rollback", "detail": "rollback ready"},
+    ])
+    checks = rule_based_score_multi_step(MULTI_STEP_CASE, output)
+    assert checks["step_coverage"] is True
+    assert checks["ordering_correct"] is False
+
+
+def test_rule_based_score_multi_step_ordering_fails_outright_when_no_constraint_is_evaluable():
+    # empty plan: neither group in the ordering constraint was matched at all -
+    # there's no order to judge, so ordering_correct should not vacuously pass
+    # just because nothing contradicted it (same precedent as code_review's
+    # severity_correct failing outright when nothing was caught at all).
+    output = _multi_step_output([])
+    checks = rule_based_score_multi_step(MULTI_STEP_CASE, output)
+    assert checks["step_coverage"] is False
+    assert checks["ordering_correct"] is False
+
+
+def test_rule_based_score_multi_step_ordering_scored_independently_on_partial_coverage():
+    # one ordering constraint is evaluable and satisfied; a second constraint
+    # references a group that was never produced at all. ordering_correct should
+    # reflect only the evaluable constraint, not be dragged down by the separate
+    # coverage miss - that distinction is what step_coverage is for.
+    case = TestCase(
+        id="ms-02",
+        input="x",
+        expected={
+            "required_steps": [
+                {"phrases": ["backfill"]},
+                {"phrases": ["cutover"]},
+                {"phrases": ["monitor"]},
+            ],
+            "ordering_constraints": [[0, 1], [1, 2]],
+            "must_not_include": [],
+        },
+    )
+    output = _multi_step_output([
+        {"phase": "backfill", "detail": "backfill historical data"},
+        {"phase": "cutover", "detail": "cut over reads"},
+    ])
+    checks = rule_based_score_multi_step(case, output)
+    assert checks["step_coverage"] is False
+    assert checks["ordering_correct"] is True
+
+
+def test_rule_based_score_multi_step_fails_on_false_positive():
+    output = _multi_step_output([
+        {"phase": "backfill", "detail": "backfill historical data"},
+        {"phase": "cutover", "detail": "cut over reads"},
+        {"phase": "cleanup", "detail": "drop the old table immediately after cutover"},
+        {"phase": "rollback", "detail": "rollback ready"},
+    ])
+    checks = rule_based_score_multi_step(MULTI_STEP_CASE, output)
+    assert checks["no_false_positives"] is False
+
+
+def test_rule_based_score_multi_step_no_constraints_trivially_passes():
+    case = TestCase(
+        id="ms-99", input="x",
+        expected={"required_steps": [], "ordering_constraints": [], "must_not_include": ["bug", "issue"]},
+    )
+    output = _multi_step_output([])
+    checks = rule_based_score_multi_step(case, output)
+    assert checks == {"step_coverage": True, "ordering_correct": True, "no_false_positives": True}
+
+
+def test_rule_based_score_multi_step_handles_missing_steps_key():
+    output = ModelOutput(test_id="ms-01", raw_text="{}", predicted={"reasoning": "x"}, cost_usd=0.001, duration_ms=500)
+    checks = rule_based_score_multi_step(MULTI_STEP_CASE, output)
+    assert checks == {"step_coverage": False, "ordering_correct": False, "no_false_positives": True}
+
+
+def test_rule_based_score_multi_step_matches_case_insensitively():
+    output = _multi_step_output([
+        {"phase": "BACKFILL", "detail": "Backfill historical data"},
+        {"phase": "Cutover", "detail": "CUT OVER reads"},
+        {"phase": "Rollback", "detail": "Rollback plan ready"},
+    ])
+    checks = rule_based_score_multi_step(MULTI_STEP_CASE, output)
+    assert checks == {"step_coverage": True, "ordering_correct": True, "no_false_positives": True}
 
 
 # --- judge_score ----------------------------------------------------------
