@@ -68,10 +68,59 @@ def rule_based_score_summarization(case: TestCase, output: ModelOutput) -> dict[
     }
 
 
+def rule_based_score_code_review(case: TestCase, output: ModelOutput) -> dict[str, bool]:
+    """No golden review to string-match, so grading is fact-constraint style like
+    summarization: must_flag is a list of groups (planted issues), each group a list
+    of acceptable phrasings plus the expected severity tier - any phrasing in a group
+    counts as catching that issue (reviews paraphrase). must_not_flag is a flat list of
+    substrings that must not appear in any finding - red herrings / false-positive bait.
+
+    issues_flagged (pure recall - was the issue caught, regardless of severity) and
+    severity_correct (was the tag right, for whatever WAS caught) answer different
+    questions, but severity_correct is NOT vacuously true just because nothing was
+    caught: a model that catches zero of the planted issues has no severity claim to
+    stand behind, so that case fails severity_correct too, instead of reporting a
+    misleading 100% next to a 0% recall score. Partial catches are still scored on
+    their own merits, independent of the issues that were missed entirely - a real
+    bug/security issue that gets caught but mistagged as "style" fails
+    severity_correct on that specific miss, distinct from a genuinely missed issue
+    (which fails issues_flagged instead). Only the all-miss case is disqualified
+    outright; partial-recall cases keep the narrower, more informative signal."""
+    findings = [f for f in (output.predicted.get("findings") or []) if isinstance(f, dict)]
+    normalized = [
+        ((f.get("issue") or "").lower(), (f.get("severity") or "").lower())
+        for f in findings
+    ]
+    all_issue_text = " ".join(text for text, _ in normalized)
+
+    def caught_by(group: dict) -> list[tuple[str, str]]:
+        return [(text, sev) for text, sev in normalized if any(p.lower() in text for p in group["phrases"])]
+
+    caught_groups = [caught_by(g) for g in case.expected["must_flag"]]
+
+    issues_flagged = all(len(matches) > 0 for matches in caught_groups)
+    if case.expected["must_flag"] and not any(caught_groups):
+        severity_correct = False
+    else:
+        severity_correct = all(
+            all(sev == group["severity"].lower() for _, sev in matches)
+            for group, matches in zip(case.expected["must_flag"], caught_groups)
+            if matches
+        )
+    no_false_positives = not any(phrase.lower() in all_issue_text for phrase in case.expected["must_not_flag"])
+
+    return {
+        "issues_flagged": issues_flagged,
+        "severity_correct": severity_correct,
+        "no_false_positives": no_false_positives,
+    }
+
+
 _RULE_SCORERS = {
     "bug_triage": rule_based_score_bug_triage,
     "code_gen": rule_based_score_code_gen,
     "summarization": rule_based_score_summarization,
+    "code_review": rule_based_score_code_review,
 }
 
 

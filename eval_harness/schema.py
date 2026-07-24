@@ -5,8 +5,9 @@ from dataclasses import dataclass, field
 class TestCase:
     id: str
     input: str
-    expected: dict  # suite-specific: e.g. {"severity": ..., "category": ...}, {"test_code": ...}, or
-    # {"must_include": [[...]], "must_exclude": [...], "max_words": ...} - values aren't always str
+    expected: dict  # suite-specific: e.g. {"severity": ..., "category": ...}, {"test_code": ...},
+    # {"must_include": [[...]], "must_exclude": [...], "max_words": ...}, or
+    # {"must_flag": [{"phrases": [...], "severity": ...}], "must_not_flag": [...]} - values aren't always str
     notes: str = ""  # why this case is here / what it's meant to catch
 
 

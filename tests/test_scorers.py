@@ -6,6 +6,7 @@ from eval_harness.scorers import (
     judge_score,
     rule_based_score_bug_triage,
     rule_based_score_code_gen,
+    rule_based_score_code_review,
     rule_based_score_summarization,
     score_all,
 )
@@ -176,6 +177,111 @@ def test_rule_based_score_summarization_no_constraints_trivially_passes():
     output = _summarization_output("anything at all")
     checks = rule_based_score_summarization(case, output)
     assert checks == {"key_facts_included": True, "no_hallucination": True, "length_ok": True}
+
+
+# --- rule_based_score_code_review -------------------------------------------
+
+CODE_REVIEW_CASE = TestCase(
+    id="cr-01",
+    input="def f(items):\n    for i in range(len(items) - 1):\n        ...",
+    expected={
+        "must_flag": [
+            {"phrases": ["off-by-one", "skips the last"], "severity": "bug"},
+            {"phrases": ["sql injection", "unsanitized"], "severity": "security"},
+        ],
+        "must_not_flag": ["style nit", "naming convention"],
+    },
+)
+
+
+def _code_review_output(findings: list[dict]) -> ModelOutput:
+    return ModelOutput(
+        test_id="cr-01", raw_text="{}", predicted={"reasoning": "x", "findings": findings},
+        cost_usd=0.001, duration_ms=500,
+    )
+
+
+def test_rule_based_score_code_review_all_checks_pass():
+    output = _code_review_output([
+        {"issue": "off-by-one loop bound skips the last item", "severity": "bug"},
+        {"issue": "sql injection via unsanitized input", "severity": "security"},
+    ])
+    checks = rule_based_score_code_review(CODE_REVIEW_CASE, output)
+    assert checks == {"issues_flagged": True, "severity_correct": True, "no_false_positives": True}
+
+
+def test_rule_based_score_code_review_fails_recall_when_a_group_is_missing():
+    output = _code_review_output([{"issue": "off-by-one loop bound", "severity": "bug"}])
+    checks = rule_based_score_code_review(CODE_REVIEW_CASE, output)
+    assert checks["issues_flagged"] is False
+
+
+def test_rule_based_score_code_review_catches_issue_mistagged_with_wrong_severity():
+    # the motivating scenario: a real security bug caught, but tagged as a
+    # minor style nit - issues_flagged should still pass (it WAS found) but
+    # severity_correct must fail (the tier is wrong).
+    output = _code_review_output([
+        {"issue": "off-by-one loop bound skips the last item", "severity": "bug"},
+        {"issue": "sql injection via unsanitized input", "severity": "style"},
+    ])
+    checks = rule_based_score_code_review(CODE_REVIEW_CASE, output)
+    assert checks["issues_flagged"] is True
+    assert checks["severity_correct"] is False
+
+
+def test_rule_based_score_code_review_severity_correct_fails_when_nothing_caught_at_all():
+    # a model that catches zero planted issues has no severity claim to stand
+    # behind - severity_correct must fail too, not report a misleading 100%
+    # next to a 0% recall score.
+    output = _code_review_output([])
+    checks = rule_based_score_code_review(CODE_REVIEW_CASE, output)
+    assert checks["issues_flagged"] is False
+    assert checks["severity_correct"] is False
+
+
+def test_rule_based_score_code_review_severity_correct_scored_independently_on_partial_catch():
+    # one of two groups caught (and correctly tagged); the other missed
+    # entirely. severity_correct should reflect only the caught group's
+    # tagging, not be dragged down by the separate recall miss - that
+    # distinction is what issues_flagged is for.
+    output = _code_review_output([{"issue": "off-by-one loop bound skips the last item", "severity": "bug"}])
+    checks = rule_based_score_code_review(CODE_REVIEW_CASE, output)
+    assert checks["issues_flagged"] is False
+    assert checks["severity_correct"] is True
+
+
+def test_rule_based_score_code_review_fails_on_false_positive():
+    output = _code_review_output([
+        {"issue": "off-by-one loop bound skips the last item", "severity": "bug"},
+        {"issue": "sql injection via unsanitized input", "severity": "security"},
+        {"issue": "inconsistent naming convention", "severity": "style"},
+    ])
+    checks = rule_based_score_code_review(CODE_REVIEW_CASE, output)
+    assert checks["no_false_positives"] is False
+
+
+def test_rule_based_score_code_review_clean_case_with_no_findings_passes():
+    case = TestCase(id="cr-99", input="x", expected={"must_flag": [], "must_not_flag": ["bug", "issue"]})
+    output = _code_review_output([])
+    checks = rule_based_score_code_review(case, output)
+    assert checks == {"issues_flagged": True, "severity_correct": True, "no_false_positives": True}
+
+
+def test_rule_based_score_code_review_handles_missing_findings_key():
+    output = ModelOutput(
+        test_id="cr-01", raw_text="{}", predicted={"reasoning": "x"}, cost_usd=0.001, duration_ms=500,
+    )
+    checks = rule_based_score_code_review(CODE_REVIEW_CASE, output)
+    assert checks == {"issues_flagged": False, "severity_correct": False, "no_false_positives": True}
+
+
+def test_rule_based_score_code_review_matches_case_insensitively():
+    output = _code_review_output([
+        {"issue": "OFF-BY-ONE loop bound skips the last item", "severity": "BUG"},
+        {"issue": "SQL INJECTION via unsanitized input", "severity": "Security"},
+    ])
+    checks = rule_based_score_code_review(CODE_REVIEW_CASE, output)
+    assert checks == {"issues_flagged": True, "severity_correct": True, "no_false_positives": True}
 
 
 # --- judge_score ----------------------------------------------------------

@@ -87,6 +87,33 @@ This grading style is more paraphrase-fragile than `code_gen`'s executable tests
 
 Every case (baseline and adversarial) was validated two ways before being trusted as calibration data: a hand-written correct summary passes all three checks, and a hand-written plausible-wrong summary fails at least one - same discipline as `code_gen`, adapted to free text via the fact-constraint grading described above.
 
+### `code_review`'s scope, and severity tagging
+
+`code_review` grades whether a model can find planted issues in a single, self-contained Python snippet - it does not grade "does this change fulfill a stated task" (that's a superset problem needing a task description + diff, and would need `code_gen`'s execution-based grading to actually verify behavior, not just review it). `code_review` was deliberately scoped down to "find issues in a snippet" first, since that's a prerequisite for judging fulfillment anyway. No repo/dependency context is given to the model, same limitation `code_gen` already accepts (see "Adding a new eval suite" above) - a real gap, not a v1 blocker.
+
+Like `summarization`, there's no golden answer to string-match - `rule_based_score_code_review` (in `scorers.py`) grades by fact-constraint groups, same shape as `summarization`'s `must_include`/`must_exclude`:
+
+- `must_flag`: a list of planted-issue groups, each `{"phrases": [...], "severity": "bug"|"security"|"style"}`. Any phrase in a group counts as catching that issue (reviews paraphrase, same reasoning as `summarization`'s groups). All groups must be caught for `issues_flagged`.
+- `must_not_flag`: a flat list of substrings that must not appear in any finding - false-positive bait (a plausible-looking non-issue, or an over-generalized nitpick).
+- `severity_correct` is evaluated only over groups that were actually caught, not all groups - severity of an issue the model never found is undefined. This is what makes "caught a real bug but tagged it as a minor style nit" (the original motivating complaint - not all flagged issues get the priority they deserve) score as a `severity_correct` failure distinct from a pure recall miss on a *different* group. The one exception: if a case has planted issues and the model caught none of them at all, `severity_correct` fails outright rather than reporting a vacuous 100% next to a 0% `issues_flagged` - that combination read as deceptively clean in the aggregate `check_accuracies` table, since there's no actual tagging to have gotten right. Partial catches keep the narrower, independent signal. See the scorer's docstring for the same rationale in code.
+
+Severity has three tiers - `security`, `bug`, `style` - chosen instead of a bug_triage-style numeric/urgency scale specifically so it maps directly onto router tiers later (security/bug findings matter more than style, and are expected to be rarer per real-world defect distributions - see conversation history). No sub-severity within a tier (e.g. no "critical" vs "minor" bug) to avoid inviting the model into follow-up-question territory that would itself need routing.
+
+### `code_review.jsonl` case design (14 cases, as of 2026-07-24)
+
+`cr-01` through `cr-06` are baseline cases - one planted issue each, one per severity tier repeated across bug/security/style so each tier has multiple examples. `cr-07` through `cr-14` target known review failure modes, the same way `code_gen.jsonl`'s and `summarization.jsonl`'s adversarial cases target known failure modes for their task types:
+
+- **Multi-issue recall** (`cr-07`) - two independent security issues (SQL injection, cardnumber logged in cleartext) in one snippet; tests whether the model reports both instead of stopping at the first obvious one - directly targets "not all errors were resolved/caught."
+- **Justified pattern, not a bug** (`cr-08`) - a caught exception returning a default looks like the silent-failure smell from `bug_triage`/`code_gen`, but an inline comment establishes it's the documented, intentional contract; tests whether the model over-flags on pattern-match alone versus actually reading the justification.
+- **Silent failure, no justification** (`cr-09`) - the same shape as `cr-08` but without the comment, so it should be flagged; the pair only works as a discriminating signal because both were validated to differ in exactly one respect.
+- **Resource leak** (`cr-10`) - a file opened without `close()`/context manager.
+- **Concurrency bug requiring actual reasoning** (`cr-11`) - a check-then-act race condition that's only wrong under concurrent access; not pattern-matchable from a keyword the way most other cases are, since the code reads correctly in isolation.
+- **Hardcoded secret** (`cr-12`) - a live-looking API key committed directly in source.
+- **False-positive bait via correct recursion** (`cr-13`) - properly-bounded recursion that superficially resembles an infinite-recursion risk; tests whether the model verifies the base case before flagging.
+- **Combined severity-mistagging target** (`cr-14`) - a real SQL injection, a plaintext-password comparison, and a genuine PascalCase naming nit all in one snippet; the case that most directly stresses `severity_correct` versus `issues_flagged`, since a model that catches the injection but calls it "style" passes recall while failing severity.
+
+Every case (baseline and adversarial) needs the same two-way validation discipline as `code_gen`/`summarization` before being trusted as calibration data - not yet run against a real model, so this set hasn't been calibration-validated yet. First real run should double-check every `must_flag`/`must_not_flag` phrase group against actual model output the same way `summarization`'s `sum-05`/`sum-08` case-design bugs were caught, before trusting any cross-model comparison drawn from it.
+
 ## Commands
 
 ```
