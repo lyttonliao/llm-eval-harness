@@ -154,3 +154,40 @@ variance across 7 models, this table says more about the suite (too small
 and too easy at n=8) than about the models - the fix is a bigger, harder
 `code_gen.jsonl`, not a router change. Stopping here deliberately rather
 than shipping a tier decision off underpowered data.
+
+## `code_gen` re-sweep against the 17-case suite (2026-07-23/24, Claude leg only)
+
+`code_gen.jsonl` grew from 8 to 17 cases same day (cg-09 through cg-17,
+targeting known LLM code-gen failure modes - see "`code_gen.jsonl` case
+design" above). Re-ran the judged sweep to see whether the harder cases
+actually discriminate.
+
+| provider | model | tests_passed | fully correct | judge coherence |
+|---|---|---|---|---|
+| claude | haiku (cheap) | 100.0% | 100.0% | 0.91 |
+| claude | sonnet (mid) | 100.0% | 100.0% | 0.70 |
+| claude | opus (flagship) | 100.0% | 100.0% | 0.79 |
+
+**All three Claude tiers still hit 100% tests_passed, even on the
+adversarial cases** - the mutable-default-argument, currency-rounding,
+parameterized-SQL, subprocess-arg-list, and rule-generalization cases
+didn't trip up any Claude tier. This is a genuine (if unexciting) result,
+not underpowered-suite noise the way the 8-case sweep was: these cases were
+each individually confirmed to fail a plausible-wrong implementation before
+being trusted (see case design notes), so a 100% here means Claude models
+actually handle these specific failure modes well, not that the cases
+don't discriminate. Judge coherence does vary now (haiku 0.91, opus 0.79,
+sonnet 0.70) even though pass/fail doesn't - worth a closer read of which
+specific cases pulled sonnet's judge score down before trusting it as a
+tier signal on its own.
+
+**Codex leg not run.** This ChatGPT account's Codex/Codex CLI usage quota
+is exhausted account-wide - a direct `codex exec` call (unrelated to any
+harness code) returned `"You've hit your usage limit... try again at Aug
+22nd, 2026."` This is a real account-level lockout, not a harness bug or a
+code_gen-difficulty finding. A first attempt at `gpt-5.4-mini` produced the
+same bogus-run shape CLAUDE.md already warns about (every case a parse
+error, `avg_judge_score` reading 0.0 like a real bad score) - deleted
+rather than kept, per established practice. **Don't attempt the Codex leg
+of this sweep again before 2026-08-22** - it will just fail account-wide
+the same way regardless of which model is requested.
