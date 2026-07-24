@@ -7,6 +7,7 @@ from eval_harness.scorers import (
     rule_based_score_bug_triage,
     rule_based_score_code_gen,
     rule_based_score_code_review,
+    rule_based_score_refactor,
     rule_based_score_summarization,
     score_all,
 )
@@ -282,6 +283,71 @@ def test_rule_based_score_code_review_matches_case_insensitively():
     ])
     checks = rule_based_score_code_review(CODE_REVIEW_CASE, output)
     assert checks == {"issues_flagged": True, "severity_correct": True, "no_false_positives": True}
+
+
+# --- rule_based_score_refactor ----------------------------------------------
+
+REFACTOR_CASE = TestCase(
+    id="rf-01",
+    input="def f(items, seen=[]): ...",
+    expected={
+        "test_code": "from solution import f\n\n\ndef test_no_state_leak():\n    assert f([1]) == f([1])\n",
+        "structural_checks": [
+            {"type": "not_contains", "pattern": r"def \w+\([^)]*=\s*(\[\]|\{\})"},
+            {"type": "max_occurrences", "pattern": r"0\.0825", "max": 1},
+        ],
+    },
+)
+
+
+def _refactor_output(code: str) -> ModelOutput:
+    return ModelOutput(test_id="rf-01", raw_text="{}", predicted={"code": code}, cost_usd=0.001, duration_ms=500)
+
+
+def test_rule_based_score_refactor_all_checks_pass():
+    code = "TAX_RATE = 0.0825\n\n\ndef f(items, seen=None):\n    if seen is None:\n        seen = []\n    return items\n"
+    output = _refactor_output(code)
+    with patch("eval_harness.scorers.sandbox.run_pytest_check", return_value=(True, "1 passed")):
+        checks = rule_based_score_refactor(REFACTOR_CASE, output)
+    assert checks == {"tests_passed": True, "smells_removed": True}
+
+
+def test_rule_based_score_refactor_fails_tests_passed_when_sandbox_reports_failure():
+    output = _refactor_output("def f(items, seen=None):\n    return items\n")
+    with patch("eval_harness.scorers.sandbox.run_pytest_check", return_value=(False, "1 failed")):
+        checks = rule_based_score_refactor(REFACTOR_CASE, output)
+    assert checks["tests_passed"] is False
+
+
+def test_rule_based_score_refactor_fails_smells_removed_when_mutable_default_still_present():
+    output = _refactor_output("def f(items, seen=[]):\n    return items\n")
+    with patch("eval_harness.scorers.sandbox.run_pytest_check", return_value=(True, "1 passed")):
+        checks = rule_based_score_refactor(REFACTOR_CASE, output)
+    assert checks["smells_removed"] is False
+
+
+def test_rule_based_score_refactor_fails_smells_removed_when_magic_number_still_duplicated():
+    code = "def f(items, seen=None):\n    a = 0.0825\n    b = 0.0825\n    return items\n"
+    output = _refactor_output(code)
+    with patch("eval_harness.scorers.sandbox.run_pytest_check", return_value=(True, "1 passed")):
+        checks = rule_based_score_refactor(REFACTOR_CASE, output)
+    assert checks["smells_removed"] is False
+
+
+def test_rule_based_score_refactor_no_structural_checks_trivially_passes():
+    case = TestCase(id="rf-99", input="x", expected={"test_code": "def test_x():\n    assert True\n"})
+    output = _refactor_output("anything at all, even code containing 0.0825 twice 0.0825")
+    with patch("eval_harness.scorers.sandbox.run_pytest_check", return_value=(True, "1 passed")):
+        checks = rule_based_score_refactor(case, output)
+    assert checks == {"tests_passed": True, "smells_removed": True}
+
+
+def test_rule_based_score_refactor_handles_missing_code_key():
+    output = ModelOutput(test_id="rf-01", raw_text="{}", predicted={"reasoning": "x"}, cost_usd=0.001, duration_ms=500)
+    with patch("eval_harness.scorers.sandbox.run_pytest_check", return_value=(False, "collection error")) as mock_check:
+        checks = rule_based_score_refactor(REFACTOR_CASE, output)
+    assert checks["tests_passed"] is False
+    mock_check.assert_called_once_with("", REFACTOR_CASE.expected["test_code"])
 
 
 # --- judge_score ----------------------------------------------------------

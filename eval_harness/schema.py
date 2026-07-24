@@ -6,8 +6,10 @@ class TestCase:
     id: str
     input: str
     expected: dict  # suite-specific: e.g. {"severity": ..., "category": ...}, {"test_code": ...},
-    # {"must_include": [[...]], "must_exclude": [...], "max_words": ...}, or
-    # {"must_flag": [{"phrases": [...], "severity": ...}], "must_not_flag": [...]} - values aren't always str
+    # {"must_include": [[...]], "must_exclude": [...], "max_words": ...},
+    # {"must_flag": [{"phrases": [...], "severity": ...}], "must_not_flag": [...]}, or
+    # {"test_code": ..., "structural_checks": [{"type": "not_contains"|"max_occurrences", "pattern": ..., "max": ...}]}
+    # - values aren't always str
     notes: str = ""  # why this case is here / what it's meant to catch
 
 

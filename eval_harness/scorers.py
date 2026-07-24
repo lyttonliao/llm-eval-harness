@@ -12,6 +12,7 @@ judge_score.
 """
 
 import json
+import re
 
 from eval_harness import sandbox
 from eval_harness.claude_cli import call_claude
@@ -116,11 +117,50 @@ def rule_based_score_code_review(case: TestCase, output: ModelOutput) -> dict[st
     }
 
 
+def _structural_checks_ok(code: str, checks: list[dict]) -> bool:
+    """Each check targets a planted smell directly on the refactored source, not
+    via test execution - see rule_based_score_refactor's docstring for why a
+    regex/count check is needed alongside the pytest gate."""
+    for check in checks:
+        matches = re.findall(check["pattern"], code)
+        if check["type"] == "not_contains" and matches:
+            return False
+        if check["type"] == "max_occurrences" and len(matches) > check["max"]:
+            return False
+    return True
+
+
+def rule_based_score_refactor(case: TestCase, output: ModelOutput) -> dict[str, bool]:
+    """Behavior preservation (tests_passed) reuses code_gen's sandbox unchanged -
+    a refactor that breaks the existing test suite is disqualified outright,
+    same trust model as code_gen (see sandbox.py). That alone doesn't prove a
+    refactor actually happened though: returning the original code verbatim
+    would pass every tests_passed check. smells_removed is the counterpart -
+    a structural check (regex presence/absence, or an occurrence count) run
+    directly on the generated code, not on test output. not_contains catches
+    smells that must disappear entirely (dead code, a mutable default arg);
+    max_occurrences catches smells that are fine to still exist ONCE (a magic
+    number moved into a single named constant) but not left duplicated inline.
+
+    Some cases (see cases/refactor.jsonl's bug-preservation cases) plant no
+    structural_checks at all and rely entirely on tests_passed: those cases'
+    test_code encodes the code's current (possibly buggy) behavior on purpose,
+    so the discriminating signal is whether the model left that behavior
+    alone rather than "fixing" something out of scope - smells_removed is
+    vacuously true there, same reasoning as summarization's always-present
+    checks with an empty constraint list."""
+    code = output.predicted.get("code", "")
+    tests_passed, _detail = sandbox.run_pytest_check(code, case.expected["test_code"])
+    smells_removed = _structural_checks_ok(code, case.expected.get("structural_checks", []))
+    return {"tests_passed": tests_passed, "smells_removed": smells_removed}
+
+
 _RULE_SCORERS = {
     "bug_triage": rule_based_score_bug_triage,
     "code_gen": rule_based_score_code_gen,
     "summarization": rule_based_score_summarization,
     "code_review": rule_based_score_code_review,
+    "refactor": rule_based_score_refactor,
 }
 
 

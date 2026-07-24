@@ -15,8 +15,8 @@ A from-scratch eval harness for scoring prompt/model quality across multiple tas
 ```
 eval_harness/
   schema.py      - TestCase, ModelOutput, ScoredResult, RunSummary dataclasses (suite-agnostic)
-  cases/*.jsonl  - golden test sets, one JSON object per line, one file per suite (bug_triage, code_gen, summarization)
-  prompts/*.txt  - versioned system prompts under test, suite-scoped by naming convention (v1_naive/v2_rubric for bug_triage, code_gen_v1 for code_gen, summarization_v1 for summarization)
+  cases/*.jsonl  - golden test sets, one JSON object per line, one file per suite (bug_triage, code_gen, summarization, code_review, refactor)
+  prompts/*.txt  - versioned system prompts under test, suite-scoped by naming convention (v1_naive/v2_rubric for bug_triage, code_gen_v1 for code_gen, summarization_v1 for summarization, code_review_v1 for code_review, refactor_v1 for refactor)
   claude_cli.py  - subprocess wrapper around `claude -p --output-format json`
   codex_cli.py   - subprocess wrapper around `codex exec --output-last-message`
   jsonutil.py    - robust JSON extraction (models sometimes wrap/prefix JSON with stray text)
@@ -113,6 +113,32 @@ Severity has three tiers - `security`, `bug`, `style` - chosen instead of a bug_
 - **Combined severity-mistagging target** (`cr-14`) - a real SQL injection, a plaintext-password comparison, and a genuine PascalCase naming nit all in one snippet; the case that most directly stresses `severity_correct` versus `issues_flagged`, since a model that catches the injection but calls it "style" passes recall while failing severity.
 
 Every case (baseline and adversarial) needs the same two-way validation discipline as `code_gen`/`summarization` before being trusted as calibration data - not yet run against a real model, so this set hasn't been calibration-validated yet. First real run should double-check every `must_flag`/`must_not_flag` phrase group against actual model output the same way `summarization`'s `sum-05`/`sum-08` case-design bugs were caught, before trusting any cross-model comparison drawn from it.
+
+### `refactor`'s scope, and hybrid execution + structural grading
+
+`refactor` grades whether a model can clean up a single, self-contained Python snippet (deduplicate, extract a magic number, remove dead code, fix a footgun) while leaving its externally observable behavior unchanged - restructuring, not `code_gen`'s new-behavior-from-a-spec or `code_review`'s find-but-don't-fix. Same no-repo-context limitation as `code_gen`/`code_review` - a real gap, not a v1 blocker.
+
+Unlike `code_review`/`summarization`, this suite reuses `code_gen`'s execution-based grading (`sandbox.run_pytest_check`) as a hard gate - `tests_passed` fails outright if the refactor breaks the existing test suite, no exceptions. But execution alone can't tell a real refactor from a no-op: returning the original code verbatim would pass every `tests_passed` check. `rule_based_score_refactor` (in `scorers.py`) adds a second, independent check - `smells_removed` - a structural inspection of the generated code text via `case.expected["structural_checks"]`, a list of typed checks:
+
+- `not_contains`: a regex that must not appear anywhere post-refactor (dead code, a mutable-default-argument signature).
+- `max_occurrences`: a regex that's fine to still appear, but only up to `max` times - the shape needed for "consolidate this magic number/duplicated expression into one place" rather than "delete it entirely."
+
+Some cases (the bug-preservation and interface-preservation adversarial cases below) plant `[]`/no `structural_checks` at all and rely entirely on `tests_passed` - the discriminating signal there is behavioral, not structural, so `smells_removed` is vacuously true, same reasoning as `summarization`'s always-present checks with an empty constraint list (see "Why two scorers, not one" and the `check_accuracies` consistency requirement).
+
+This is the first suite where a rule scorer inspects the model's raw code text directly (not just its execution result or its prose) - regex was chosen over an AST-based check to stay consistent with the repo's stdlib-only, no-new-import discipline (see "Why it's built this way"); it's more whitespace/formatting-fragile than an AST check would be, so every `structural_checks` pattern was validated against both a hand-written correct refactor and a plausible-wrong one (see case design below) before being trusted, same discipline as every other suite's constraint groups.
+
+### `refactor.jsonl` case design (12 cases, as of 2026-07-24)
+
+`rf-01` through `rf-06` are baseline cases - each plants one structural smell (duplicated loop/logic, a repeated magic number, dead code, a mutable default argument, redundant `== True`/`== False` comparisons, a duplicated validation message across two functions) with a `structural_checks` entry that would catch a no-op "refactor." `rf-07` through `rf-12` target failure modes specific to refactoring - fixing behavior is a genuinely different kind of mistake here than in `code_gen`, since the code already works and the risk is changing behavior that should have been left alone:
+
+- **Bug preservation / scope discipline** (`rf-07`) - the code has a real off-by-one bug (skips the last element via `range(len(items) - 1)`), but the instruction only asks for a rename and the existing tests encode the current (buggy) output on purpose. Tests whether the model resists "helpfully" fixing behavior that's out of scope for a refactor task - no other suite has this failure mode, since `code_gen`/`bug_triage` both want the bug fixed and `code_review` only has to report it, never touch the code.
+- **False-consolidation bait** (`rf-08`) - two branches (`electronics`/`clothing`) really are identical and should merge, but a third (`other`) only superficially resembles them (no `>100` tier, always the flat rate); tests whether the model verifies branches are actually identical before folding them together, the refactor-specific analog of `code_review`'s `cr-13` (verify the base case before flagging).
+- **Public interface preservation** (`rf-09`) - the instruction only asks to clean up an internal helper, but the test suite imports the outer function by name; a model that renames the public entry point while refactoring internals breaks the import. This falls directly out of `sandbox.run_pytest_check`'s existing `from solution import <name>` requirement - no new grading mechanism needed, just a case that exercises it deliberately.
+- **Multi-branch rule-following** (`rf-10`) - an if/elif chain converted to a dict lookup; tests whether the fallback branch for unrecognized input survives the conversion, same family as `code_gen`'s `cg-16`/`cg-17` and `summarization`'s scope-dropping cases.
+- **Silent-failure family, ported to refactor** (`rf-11`) - a "simplify the validation" instruction that could tempt swallowing a documented `raise` into a silent default return; same theme as `bug_triage`'s `bt-10` and `code_gen`'s `cg-09`/`cg-10`.
+- **Combined stress case** (`rf-12`) - two independent smells (a magic number reused in two unrelated conditionals, and a duplicated fee expression across branches) in one snippet, the refactor analog of `code_review`'s `cr-14`: a model that fixes one but not the other fails specifically on the un-fixed smell, not a single pass/fail blur.
+
+Every case (baseline and adversarial) was validated two ways before being trusted as calibration data: a hand-written correct refactor passes both `tests_passed` and `smells_removed`, and a hand-written plausible-wrong one (either a no-op that leaves the smell in place, or a "helpful" fix that changes behavior it shouldn't) fails at least one check - same discipline as every suite before it. Not yet run against a real model, so - like `code_review` - this set hasn't been calibration-validated yet; first real run should sanity-check every `structural_checks` regex against actual model output before trusting a cross-model comparison drawn from it, since regex-on-code-text has similar false-positive/negative surface to `summarization`/`code_review`'s substring matching on free text.
 
 ## Commands
 
