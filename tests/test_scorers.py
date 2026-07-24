@@ -2,7 +2,13 @@ from unittest.mock import patch
 
 from eval_harness.claude_cli import CliResult
 from eval_harness.schema import ModelOutput, TestCase
-from eval_harness.scorers import judge_score, rule_based_score_bug_triage, rule_based_score_code_gen, score_all
+from eval_harness.scorers import (
+    judge_score,
+    rule_based_score_bug_triage,
+    rule_based_score_code_gen,
+    rule_based_score_summarization,
+    score_all,
+)
 
 CASE = TestCase(
     id="bt-01",
@@ -97,6 +103,79 @@ def test_rule_based_score_code_gen_handles_missing_code_key():
 
     assert checks == {"tests_passed": False}
     mock_check.assert_called_once_with("", CODE_GEN_CASE.expected["test_code"])
+
+
+# --- rule_based_score_summarization -----------------------------------------
+
+SUMMARIZATION_CASE = TestCase(
+    id="sum-01",
+    input="The patch did not fix the leak; memory usage kept climbing.",
+    expected={
+        "must_include": [["did not fix", "not resolved"], ["memory"]],
+        "must_exclude": ["fixed the leak", "resolved the leak"],
+        "max_words": 12,
+    },
+)
+
+
+def _summarization_output(summary: str) -> ModelOutput:
+    return ModelOutput(
+        test_id="sum-01", raw_text="{}", predicted={"reasoning": "x", "summary": summary},
+        cost_usd=0.001, duration_ms=500,
+    )
+
+
+def test_rule_based_score_summarization_all_checks_pass():
+    output = _summarization_output("The patch did not fix the leak; memory usage kept climbing.")
+    checks = rule_based_score_summarization(SUMMARIZATION_CASE, output)
+    assert checks == {"key_facts_included": True, "no_hallucination": True, "length_ok": True}
+
+
+def test_rule_based_score_summarization_matches_case_insensitively():
+    output = _summarization_output("THE PATCH DID NOT FIX THE MEMORY LEAK.")
+    checks = rule_based_score_summarization(SUMMARIZATION_CASE, output)
+    assert checks["key_facts_included"] is True
+
+
+def test_rule_based_score_summarization_accepts_any_phrase_in_a_must_include_group():
+    output = _summarization_output("The leak was not resolved; memory kept rising.")
+    checks = rule_based_score_summarization(SUMMARIZATION_CASE, output)
+    assert checks["key_facts_included"] is True
+
+
+def test_rule_based_score_summarization_fails_when_a_must_include_group_is_missing():
+    output = _summarization_output("The patch did not fix the issue.")  # no "memory" mention
+    checks = rule_based_score_summarization(SUMMARIZATION_CASE, output)
+    assert checks["key_facts_included"] is False
+
+
+def test_rule_based_score_summarization_fails_on_hallucinated_phrase():
+    output = _summarization_output("The patch fixed the leak; memory usage is stable.")
+    checks = rule_based_score_summarization(SUMMARIZATION_CASE, output)
+    assert checks["no_hallucination"] is False
+
+
+def test_rule_based_score_summarization_fails_when_over_word_limit():
+    output = _summarization_output(
+        "The patch did not fix the leak; memory usage kept climbing steadily over the next two days, well past the limit."
+    )
+    checks = rule_based_score_summarization(SUMMARIZATION_CASE, output)
+    assert checks["length_ok"] is False
+
+
+def test_rule_based_score_summarization_handles_missing_summary_key():
+    output = ModelOutput(test_id="sum-01", raw_text="{}", predicted={}, cost_usd=0.001, duration_ms=500)
+    checks = rule_based_score_summarization(SUMMARIZATION_CASE, output)
+    assert checks == {"key_facts_included": False, "no_hallucination": True, "length_ok": True}
+
+
+def test_rule_based_score_summarization_no_constraints_trivially_passes():
+    case = TestCase(
+        id="sum-99", input="x", expected={"must_include": [], "must_exclude": [], "max_words": 100}
+    )
+    output = _summarization_output("anything at all")
+    checks = rule_based_score_summarization(case, output)
+    assert checks == {"key_facts_included": True, "no_hallucination": True, "length_ok": True}
 
 
 # --- judge_score ----------------------------------------------------------

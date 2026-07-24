@@ -42,9 +42,36 @@ def rule_based_score_code_gen(case: TestCase, output: ModelOutput) -> dict[str, 
     return {"tests_passed": passed}
 
 
+def rule_based_score_summarization(case: TestCase, output: ModelOutput) -> dict[str, bool]:
+    """No golden summary to string-match against, so "correct" is expressed as
+    fact-level constraints instead: groups of acceptable phrasings that must
+    appear (any phrasing in a group counts - summaries paraphrase), strings
+    that must not appear (hallucinated or reversed facts), and a word-count
+    ceiling. All three checks are always present (even when a case's
+    must_include/must_exclude is empty) so check_accuracies aggregates the
+    same key set across every case, matching bug_triage/code_gen."""
+    summary = (output.predicted.get("summary") or "").lower()
+
+    key_facts_included = all(
+        any(phrase.lower() in summary for phrase in group)
+        for group in case.expected["must_include"]
+    )
+    no_hallucination = not any(
+        phrase.lower() in summary for phrase in case.expected["must_exclude"]
+    )
+    length_ok = len(summary.split()) <= case.expected["max_words"]
+
+    return {
+        "key_facts_included": key_facts_included,
+        "no_hallucination": no_hallucination,
+        "length_ok": length_ok,
+    }
+
+
 _RULE_SCORERS = {
     "bug_triage": rule_based_score_bug_triage,
     "code_gen": rule_based_score_code_gen,
+    "summarization": rule_based_score_summarization,
 }
 
 
