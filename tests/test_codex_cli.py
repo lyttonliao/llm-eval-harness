@@ -1,3 +1,4 @@
+import json
 import subprocess
 from pathlib import Path
 from unittest.mock import patch
@@ -5,8 +6,12 @@ from unittest.mock import patch
 from eval_harness.codex_cli import call_codex
 
 
-def _completed(returncode=0, stderr=""):
-    return subprocess.CompletedProcess(args=["codex"], returncode=returncode, stdout="", stderr=stderr)
+def _completed(returncode=0, stdout="", stderr=""):
+    return subprocess.CompletedProcess(args=["codex"], returncode=returncode, stdout=stdout, stderr=stderr)
+
+
+def _token_count_event(**usage: int) -> str:
+    return json.dumps({"payload": {"info": {"total_token_usage": usage}}})
 
 
 def test_builds_expected_command_with_concatenated_prompt_and_readonly_sandbox():
@@ -25,6 +30,7 @@ def test_builds_expected_command_with_concatenated_prompt_and_readonly_sandbox()
     assert "--model" in cmd and cmd[cmd.index("--model") + 1] == "gpt-5"
     assert "--sandbox" in cmd and cmd[cmd.index("--sandbox") + 1] == "read-only"
     assert "--ask-for-approval" not in cmd
+    assert "--json" in cmd
     assert "--skip-git-repo-check" in cmd
     assert "--output-last-message" in cmd
     assert kwargs["capture_output"] is True
@@ -44,12 +50,19 @@ def test_omits_model_flag_when_model_is_none():
     assert "--model" not in cmd
 
 
-def test_success_path_reads_text_from_output_last_message_file_and_measures_duration():
+def test_success_path_reads_text_from_output_last_message_file_and_records_token_usage():
     def fake_run(cmd, **kwargs):
         path = cmd[cmd.index("--output-last-message") + 1]
         with open(path, "w") as f:
             f.write("the answer\n")
-        return _completed()
+        return _completed(
+            stdout="\n".join(
+                [
+                    json.dumps({"type": "other"}),
+                    _token_count_event(input_tokens=100, cached_input_tokens=40, output_tokens=15, total_tokens=115),
+                ]
+            )
+        )
 
     with patch("eval_harness.codex_cli.subprocess.run", side_effect=fake_run):
         result = call_codex("sys", "msg", model="gpt-5")
@@ -58,6 +71,31 @@ def test_success_path_reads_text_from_output_last_message_file_and_measures_dura
     assert result.error == ""
     assert result.cost_usd == 0.0
     assert result.duration_ms >= 0
+    assert result.token_usage == {
+        "input_tokens": 100,
+        "cached_input_tokens": 40,
+        "output_tokens": 15,
+        "total_tokens": 115,
+    }
+
+
+def test_token_usage_uses_last_cumulative_event_and_ignores_malformed_json():
+    events = "\n".join(
+        [
+            _token_count_event(input_tokens=10, output_tokens=1, total_tokens=11),
+            "not json",
+            _token_count_event(input_tokens=30, output_tokens=4, reasoning_output_tokens=2, total_tokens=34),
+        ]
+    )
+    with patch("eval_harness.codex_cli.subprocess.run", return_value=_completed(stdout=events)):
+        result = call_codex("sys", "msg", model="gpt-5")
+
+    assert result.token_usage == {
+        "input_tokens": 30,
+        "output_tokens": 4,
+        "reasoning_output_tokens": 2,
+        "total_tokens": 34,
+    }
 
 
 def test_last_message_file_is_cleaned_up_after_success():

@@ -7,7 +7,8 @@ Verified against a real install and a real authenticated call (codex-cli
   user_message are concatenated into one prompt string instead of passed
   separately like claude_cli.call_claude does.
 - No dollar-cost field exists anywhere in its output, so cost_usd stays
-  0.0 here - unlike claude_cli.py, duration_ms is self-measured with
+  0.0 here. `--json` does emit token-count events, which are retained as
+  token_usage. Unlike claude_cli.py, duration_ms is self-measured with
   time.perf_counter() around the call, since nothing else reports it.
 - `--ask-for-approval` is a top-level `codex` option, not a valid `codex
   exec` flag (a real call fails with "unexpected argument" if you pass
@@ -21,12 +22,34 @@ Verified against a real install and a real authenticated call (codex-cli
   rather than guessing a name that might not exist on the caller's plan.
 """
 
+import json
 import subprocess
 import tempfile
 import time
 from pathlib import Path
 
 from eval_harness.claude_cli import CliResult
+
+
+def _extract_token_usage(events: str) -> dict[str, int]:
+    """Return the final accumulated usage from Codex's JSONL event stream."""
+    token_usage: dict[str, int] = {}
+    for line in events.splitlines():
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        usage = event.get("payload", {}).get("info", {}).get("total_token_usage")
+        if not isinstance(usage, dict):
+            continue
+        parsed_usage = {
+            name: value
+            for name, value in usage.items()
+            if isinstance(name, str) and isinstance(value, int) and not isinstance(value, bool)
+        }
+        if parsed_usage:
+            token_usage = parsed_usage
+    return token_usage
 
 
 def call_codex(system_prompt: str, user_message: str, model: str | None = None) -> CliResult:
@@ -39,6 +62,7 @@ def call_codex(system_prompt: str, user_message: str, model: str | None = None) 
     if model is not None:
         cmd += ["--model", model]
     cmd += [
+        "--json",
         "--sandbox",
         "read-only",
         "--skip-git-repo-check",
@@ -59,10 +83,19 @@ def call_codex(system_prompt: str, user_message: str, model: str | None = None) 
 
         if proc.returncode != 0:
             return CliResult(
-                text="", cost_usd=0.0, duration_ms=duration_ms, error=proc.stderr.strip() or "nonzero exit"
+                text="",
+                cost_usd=0.0,
+                duration_ms=duration_ms,
+                error=proc.stderr.strip() or "nonzero exit",
+                token_usage=_extract_token_usage(proc.stdout),
             )
 
         text = last_message_path.read_text().strip() if last_message_path.exists() else ""
-        return CliResult(text=text, cost_usd=0.0, duration_ms=duration_ms)
+        return CliResult(
+            text=text,
+            cost_usd=0.0,
+            duration_ms=duration_ms,
+            token_usage=_extract_token_usage(proc.stdout),
+        )
     finally:
         last_message_path.unlink(missing_ok=True)

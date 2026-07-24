@@ -16,6 +16,7 @@ class ModelOutput:
     predicted: dict[str, str]  # full parsed model JSON, suite-specific keys (includes "reasoning")
     cost_usd: float
     duration_ms: int
+    token_usage: dict[str, int] = field(default_factory=dict)
     parse_error: str = ""
 
 
@@ -28,6 +29,7 @@ class ScoredResult:
     judge_rationale: str
     cost_usd: float
     duration_ms: int
+    token_usage: dict[str, int] = field(default_factory=dict)
 
     @property
     def fully_correct(self) -> bool:
@@ -43,5 +45,6 @@ class RunSummary:
     fully_correct_rate: float
     avg_judge_score: float
     total_cost_usd: float
+    total_tokens: int = 0
     results: list[ScoredResult] = field(default_factory=list)
     provider: str = "claude"

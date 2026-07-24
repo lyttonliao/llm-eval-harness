@@ -28,7 +28,7 @@ def resolve_model(provider: str, model: str | None) -> str:
 def run_once(suite: str, prompt: str, provider: str, model: str, judge: bool) -> None:
     print(f"Running suite '{suite}' with prompt '{prompt}' on {provider}/{model}...")
     if provider == "codex":
-        print("note: codex provider does not report per-call cost; total_cost_usd will read $0.00")
+        print("note: Codex does not report per-call cost; $0.00 is a placeholder, while token usage is recorded")
     cases = load_cases(suite)
     outputs = run_suite(suite, prompt, provider=provider, model=model)
 
@@ -64,9 +64,10 @@ def compare(suite: str, prompt_a: str, prompt_b: str, provider: str, model: str,
         ("fully correct", "fully_correct_rate"),
         ("judge coherence", "avg_judge_score"),
         ("cost (usd)", "total_cost_usd"),
+        ("total tokens", "total_tokens"),
     ]:
         av, bv = getattr(a, key), getattr(b, key)
-        fmt = "{:.4f}" if key == "total_cost_usd" else "{:.1%}"
+        fmt = "{:.4f}" if key == "total_cost_usd" else ("{:,}" if key == "total_tokens" else "{:.1%}")
         print(f"{label:<20}{fmt.format(av):>18}{fmt.format(bv):>18}")
 
 

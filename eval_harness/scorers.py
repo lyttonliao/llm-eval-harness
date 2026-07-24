@@ -108,6 +108,7 @@ def score_all(suite: str, cases: list[TestCase], outputs: list[ModelOutput], run
                 judge_rationale=judge_rationale,
                 cost_usd=output.cost_usd,
                 duration_ms=output.duration_ms,
+                token_usage=output.token_usage,
             )
         )
 

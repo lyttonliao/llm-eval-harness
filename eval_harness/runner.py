@@ -46,7 +46,10 @@ def run_suite(suite: str, prompt_version: str, provider: str = "claude", model: 
             outputs.append(
                 ModelOutput(
                     test_id=case.id, raw_text=result.text, predicted={},
-                    cost_usd=0.0, duration_ms=0, parse_error=result.error,
+                    cost_usd=result.cost_usd,
+                    duration_ms=result.duration_ms,
+                    token_usage=result.token_usage,
+                    parse_error=result.error,
                 )
             )
             continue
@@ -60,15 +63,19 @@ def run_suite(suite: str, prompt_version: str, provider: str = "claude", model: 
                     predicted=parsed,
                     cost_usd=result.cost_usd,
                     duration_ms=result.duration_ms,
+                    token_usage=result.token_usage,
                 )
             )
-            print(f"${result.cost_usd:.4f}")
+            token_count = result.token_usage.get("total_tokens")
+            token_label = f", {token_count} tokens" if token_count is not None else ""
+            print(f"${result.cost_usd:.4f}{token_label}")
         except (json.JSONDecodeError, AttributeError) as e:
             print(f"PARSE ERROR: {e}")
             outputs.append(
                 ModelOutput(
                     test_id=case.id, raw_text=result.text, predicted={},
                     cost_usd=result.cost_usd, duration_ms=result.duration_ms,
+                    token_usage=result.token_usage,
                     parse_error=str(e),
                 )
             )

@@ -9,7 +9,7 @@ system prompt vs ~$0.003/call stripped down, for the exact same question.
 
 import json
 import subprocess
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 
 @dataclass
@@ -18,6 +18,7 @@ class CliResult:
     cost_usd: float
     duration_ms: int
     error: str = ""
+    token_usage: dict[str, int] = field(default_factory=dict)
 
 
 def call_claude(system_prompt: str, user_message: str, model: str = "haiku") -> CliResult:

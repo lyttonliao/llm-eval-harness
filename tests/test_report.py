@@ -6,7 +6,7 @@ import eval_harness.report as report
 from eval_harness.schema import RunSummary, ScoredResult
 
 
-def _result(severity_correct=True, category_correct=True, judge_score=0.8, cost=0.001) -> ScoredResult:
+def _result(severity_correct=True, category_correct=True, judge_score=0.8, cost=0.001, token_usage=None) -> ScoredResult:
     return ScoredResult(
         test_id="bt-01",
         predicted={"severity": "high", "category": "backend"},
@@ -15,6 +15,7 @@ def _result(severity_correct=True, category_correct=True, judge_score=0.8, cost=
         judge_rationale="grounded",
         cost_usd=cost,
         duration_ms=500,
+        token_usage=token_usage or {},
     )
 
 
@@ -31,8 +32,8 @@ def isolated_runs_dir(tmp_path, monkeypatch):
 def test_build_summary_aggregates_correctly():
     results = [
         _result(severity_correct=True, category_correct=True, judge_score=1.0, cost=0.01),
-        _result(severity_correct=True, category_correct=False, judge_score=0.5, cost=0.02),
-        _result(severity_correct=False, category_correct=False, judge_score=0.0, cost=0.03),
+        _result(severity_correct=True, category_correct=False, judge_score=0.5, cost=0.02, token_usage={"total_tokens": 20}),
+        _result(severity_correct=False, category_correct=False, judge_score=0.0, cost=0.03, token_usage={"total_tokens": 30}),
     ]
 
     summary = report.build_summary("v1_naive", "haiku", results)
@@ -43,6 +44,7 @@ def test_build_summary_aggregates_correctly():
     assert summary.fully_correct_rate == pytest.approx(1 / 3)
     assert summary.avg_judge_score == pytest.approx(1.5 / 3)
     assert summary.total_cost_usd == pytest.approx(0.06)
+    assert summary.total_tokens == 50
 
 
 def test_build_summary_empty_results_does_not_divide_by_zero():
@@ -70,6 +72,8 @@ def test_save_run_writes_json_file_under_runs_dir(isolated_runs_dir):
     assert payload["model"] == "haiku"
     assert payload["total_cases"] == 1
     assert payload["results"][0]["test_id"] == "bt-01"
+    assert payload["total_tokens"] == 0
+    assert payload["results"][0]["token_usage"] == {}
 
 
 def test_find_previous_run_returns_none_when_no_prior_run():

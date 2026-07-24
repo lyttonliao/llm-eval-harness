@@ -20,6 +20,7 @@ def build_summary(
         fully_correct_rate=sum(r.fully_correct for r in results) / n,
         avg_judge_score=sum(r.judge_score for r in results) / n,
         total_cost_usd=sum(r.cost_usd for r in results),
+        total_tokens=sum(r.token_usage.get("total_tokens", 0) for r in results),
         results=results,
         provider=provider,
     )
@@ -43,6 +44,7 @@ def save_run(summary: RunSummary) -> Path:
         "fully_correct_rate": summary.fully_correct_rate,
         "avg_judge_score": summary.avg_judge_score,
         "total_cost_usd": summary.total_cost_usd,
+        "total_tokens": summary.total_tokens,
         "results": [
             {
                 "test_id": r.test_id,
@@ -52,6 +54,7 @@ def save_run(summary: RunSummary) -> Path:
                 "judge_rationale": r.judge_rationale,
                 "cost_usd": r.cost_usd,
                 "duration_ms": r.duration_ms,
+                "token_usage": r.token_usage,
             }
             for r in summary.results
         ],
@@ -88,6 +91,7 @@ def find_previous_run(prompt_version: str, model: str, before: Path | None = Non
         fully_correct_rate=data["fully_correct_rate"],
         avg_judge_score=data["avg_judge_score"],
         total_cost_usd=data["total_cost_usd"],
+        total_tokens=data.get("total_tokens", 0),
         # .get(), not [] - run files saved before the provider field existed
         # (see runs/ history predating Codex support) don't have this key.
         provider=data.get("provider", "claude"),
@@ -118,6 +122,8 @@ def print_report(summary: RunSummary, previous: RunSummary | None = None) -> Non
         print(f"fully correct:        {summary.fully_correct_rate:.1%}")
         print(f"avg judge coherence:  {summary.avg_judge_score:.2f}")
     print(f"total cost:           ${summary.total_cost_usd:.4f}")
+    if summary.provider == "codex":
+        print(f"total tokens:         {summary.total_tokens:,}")
 
     failures = [r for r in summary.results if not r.fully_correct]
     if failures:
