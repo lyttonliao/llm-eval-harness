@@ -9,7 +9,8 @@ class TestCase:
     # {"must_include": [[...]], "must_exclude": [...], "max_words": ...},
     # {"must_flag": [{"phrases": [...], "severity": ...}], "must_not_flag": [...]},
     # {"test_code": ..., "structural_checks": [{"type": "not_contains"|"max_occurrences", "pattern": ..., "max": ...}]}, or
-    # {"required_steps": [{"phrases": [...]}], "ordering_constraints": [[early_idx, late_idx]], "must_not_include": [...]}
+    # {"required_steps": [{"phrases": [...]}], "ordering_constraints": [[early_idx, late_idx]], "must_not_include": [...]}, or
+    # {"must_include": [[...]], "must_not_include": [...], "min_alternatives": <int>}
     # - values aren't always str
     notes: str = ""  # why this case is here / what it's meant to catch
 

@@ -210,6 +210,56 @@ def rule_based_score_multi_step(case: TestCase, output: ModelOutput) -> dict[str
     }
 
 
+def rule_based_score_architecture(case: TestCase, output: ModelOutput) -> dict[str, bool]:
+    """No golden design to string-match, so grading is fact-constraint style like every
+    prior suite, plus one new axis: tradeoffs must be genuinely ARTICULATED, not just
+    judged for prose quality by judge_score alone. Three output fields play three
+    distinct roles here rather than being pooled into one search blob the way earlier
+    suites pool their free text:
+
+    - must_include is checked against design + reasoning (design is the actual chosen
+      answer; reasoning can carry a required consideration too) - same "any phrasing in
+      a group counts" reasoning as summarization/code_review's groups.
+    - must_not_include is checked against design ONLY, deliberately excluding reasoning
+      and alternatives_considered. A model that correctly NAMES a bad approach in order
+      to reject it ("avoided a single-region deployment given the HA requirement")
+      shouldn't fail no_anti_patterns for saying the bait phrase - that's code_review's
+      cr-08 "justified pattern, not a bug" lesson ported here. Only the design actually
+      being proposed is graded for containing an anti-pattern.
+    - alternatives_considered is used ONLY for tradeoffs_articulated, never pooled into
+      the must_include/must_not_include search text - its whole purpose is discussing
+      options that were NOT chosen, so its content shouldn't count toward "what the
+      design addresses" or be penalized as "what the design contains."
+
+    tradeoffs_articulated requires GENUINE alternatives: both a named option and a
+    non-empty rejected_because, deduplicated by option text. A padded list of options
+    with no stated rejection reason, or several reworded names for the same option,
+    doesn't inflate the count - this is the suite's one real new mechanism, a
+    structural check on the response shape like refactor's structural_checks, just
+    counting distinct dicts instead of regex matches.
+    """
+    design = (output.predicted.get("design") or "").lower()
+    reasoning = (output.predicted.get("reasoning") or "").lower()
+    alternatives = [a for a in (output.predicted.get("alternatives_considered") or []) if isinstance(a, dict)]
+
+    genuine = [a for a in alternatives if (a.get("option") or "").strip() and (a.get("rejected_because") or "").strip()]
+    distinct_options = {a["option"].strip().lower() for a in genuine}
+
+    include_text = f"{design} {reasoning}"
+    key_considerations_addressed = all(
+        any(phrase.lower() in include_text for phrase in group)
+        for group in case.expected["must_include"]
+    )
+    no_anti_patterns = not any(phrase.lower() in design for phrase in case.expected["must_not_include"])
+    tradeoffs_articulated = len(distinct_options) >= case.expected["min_alternatives"]
+
+    return {
+        "key_considerations_addressed": key_considerations_addressed,
+        "no_anti_patterns": no_anti_patterns,
+        "tradeoffs_articulated": tradeoffs_articulated,
+    }
+
+
 _RULE_SCORERS = {
     "bug_triage": rule_based_score_bug_triage,
     "code_gen": rule_based_score_code_gen,
@@ -217,6 +267,7 @@ _RULE_SCORERS = {
     "code_review": rule_based_score_code_review,
     "refactor": rule_based_score_refactor,
     "multi_step": rule_based_score_multi_step,
+    "architecture": rule_based_score_architecture,
 }
 
 

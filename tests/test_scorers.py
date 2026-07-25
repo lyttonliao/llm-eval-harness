@@ -4,6 +4,7 @@ from eval_harness.claude_cli import CliResult
 from eval_harness.schema import ModelOutput, TestCase
 from eval_harness.scorers import (
     judge_score,
+    rule_based_score_architecture,
     rule_based_score_bug_triage,
     rule_based_score_code_gen,
     rule_based_score_code_review,
@@ -478,6 +479,122 @@ def test_rule_based_score_multi_step_matches_case_insensitively():
     ])
     checks = rule_based_score_multi_step(MULTI_STEP_CASE, output)
     assert checks == {"step_coverage": True, "ordering_correct": True, "no_false_positives": True}
+
+
+# --- rule_based_score_architecture ------------------------------------------
+
+ARCHITECTURE_CASE = TestCase(
+    id="ar-01",
+    input="Design a rate limiter for a public API across multiple server instances.",
+    expected={
+        "must_include": [["shared store", "redis", "centralized store"]],
+        "must_not_include": ["single instance", "local in-memory counter"],
+        "min_alternatives": 1,
+    },
+)
+
+
+def _architecture_output(design: str, reasoning: str = "x", alternatives: list[dict] | None = None) -> ModelOutput:
+    return ModelOutput(
+        test_id="ar-01", raw_text="{}",
+        predicted={"reasoning": reasoning, "design": design, "alternatives_considered": alternatives or []},
+        cost_usd=0.001, duration_ms=500,
+    )
+
+
+def test_rule_based_score_architecture_all_checks_pass():
+    output = _architecture_output(
+        design="Use a shared Redis store to track request counts per API key across all instances.",
+        alternatives=[{"option": "local in-memory counter per instance", "rejected_because": "can't enforce a consistent limit across instances"}],
+    )
+    checks = rule_based_score_architecture(ARCHITECTURE_CASE, output)
+    assert checks == {"key_considerations_addressed": True, "no_anti_patterns": True, "tradeoffs_articulated": True}
+
+
+def test_rule_based_score_architecture_fails_key_considerations_when_missing():
+    output = _architecture_output(
+        design="Use a load balancer with round-robin routing across instances.",
+        alternatives=[{"option": "sticky sessions", "rejected_because": "adds complexity and doesn't solve the limit consistency problem"}],
+    )
+    checks = rule_based_score_architecture(ARCHITECTURE_CASE, output)
+    assert checks["key_considerations_addressed"] is False
+
+
+def test_rule_based_score_architecture_fails_no_anti_patterns_when_bait_in_design():
+    output = _architecture_output(
+        design="Use a local in-memory counter per instance, backed by a shared store for cross-instance sync.",
+        alternatives=[{"option": "x", "rejected_because": "y"}],
+    )
+    checks = rule_based_score_architecture(ARCHITECTURE_CASE, output)
+    assert checks["no_anti_patterns"] is False
+
+
+def test_rule_based_score_architecture_ignores_bait_that_only_appears_in_alternatives():
+    # the bait phrases only show up inside a REJECTED alternative, explaining why it
+    # wasn't chosen - naming a bad approach in order to reject it shouldn't fail
+    # no_anti_patterns the way actually proposing it in `design` would.
+    output = _architecture_output(
+        design="Use a shared Redis store to track request counts per API key across all instances.",
+        alternatives=[{
+            "option": "single instance with a local in-memory counter",
+            "rejected_because": "would not enforce a consistent limit across instances and becomes a single point of failure",
+        }],
+    )
+    checks = rule_based_score_architecture(ARCHITECTURE_CASE, output)
+    assert checks["no_anti_patterns"] is True
+
+
+def test_rule_based_score_architecture_tradeoffs_articulated_fails_below_min():
+    output = _architecture_output(
+        design="Use a shared Redis store to track request counts per API key across all instances.",
+        alternatives=[],
+    )
+    checks = rule_based_score_architecture(ARCHITECTURE_CASE, output)
+    assert checks["tradeoffs_articulated"] is False
+
+
+def test_rule_based_score_architecture_ignores_alternatives_with_empty_rejection_reason():
+    output = _architecture_output(
+        design="Use a shared Redis store to track request counts per API key across all instances.",
+        alternatives=[{"option": "local in-memory counter", "rejected_because": ""}],
+    )
+    checks = rule_based_score_architecture(ARCHITECTURE_CASE, output)
+    assert checks["tradeoffs_articulated"] is False
+
+
+def test_rule_based_score_architecture_dedupes_near_identical_option_text():
+    case = TestCase(id="ar-11", input="x", expected={"must_include": [], "must_not_include": [], "min_alternatives": 2})
+    output = _architecture_output(
+        design="anything",
+        alternatives=[
+            {"option": "Local in-memory counter", "rejected_because": "doesn't work across instances"},
+            {"option": "local in-memory counter", "rejected_because": "same issue restated"},
+        ],
+    )
+    checks = rule_based_score_architecture(case, output)
+    assert checks["tradeoffs_articulated"] is False  # only 1 distinct option despite 2 entries
+
+
+def test_rule_based_score_architecture_no_constraints_trivially_passes():
+    case = TestCase(id="ar-99", input="x", expected={"must_include": [], "must_not_include": ["bug"], "min_alternatives": 0})
+    output = _architecture_output(design="anything at all", alternatives=[])
+    checks = rule_based_score_architecture(case, output)
+    assert checks == {"key_considerations_addressed": True, "no_anti_patterns": True, "tradeoffs_articulated": True}
+
+
+def test_rule_based_score_architecture_handles_missing_keys():
+    output = ModelOutput(test_id="ar-01", raw_text="{}", predicted={"reasoning": "x"}, cost_usd=0.001, duration_ms=500)
+    checks = rule_based_score_architecture(ARCHITECTURE_CASE, output)
+    assert checks == {"key_considerations_addressed": False, "no_anti_patterns": True, "tradeoffs_articulated": False}
+
+
+def test_rule_based_score_architecture_matches_case_insensitively():
+    output = _architecture_output(
+        design="Use a Shared REDIS store to track request counts.",
+        alternatives=[{"option": "Local In-Memory Counter", "rejected_because": "Doesn't scale across instances"}],
+    )
+    checks = rule_based_score_architecture(ARCHITECTURE_CASE, output)
+    assert checks == {"key_considerations_addressed": True, "no_anti_patterns": True, "tradeoffs_articulated": True}
 
 
 # --- judge_score ----------------------------------------------------------
