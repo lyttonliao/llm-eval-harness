@@ -598,3 +598,80 @@ a model can reasonably explain what it didn't choose), not something a
 phrase-list edit fixes. Left open rather than patched; worth a scorer
 change (pool `design` + `alternatives_considered`'s `rejected_because`
 text for `must_not_include`, not `design` alone) as its own follow-up.
+
+## `multi_step` N-sample validation (2026-07-25) - the mechanism worked, and it found something bigger than expected
+
+Built `--samples N` (see the `--samples` flag commit) specifically to
+answer whether `multi_step`'s single-sample instability (documented
+earlier this session, and in the conversation that motivated this work)
+was real model non-determinism or a case-design artifact. Ran the decided
+validation: N=5, haiku, judged, all 12 cases (`python -m eval_harness run
+--suite multi_step --prompt multi_step_v1 --model haiku --samples 5`,
+$2.57, saved as `runs/20260725T225357Z__multi_step_v1__haiku.json`).
+
+**Result: 15.0% fully-correct across 60 samples, with 8 of 12 cases at or
+near 0% and only one case (`no_false_positives`) at a clean 100%.** This
+number is real but **must not be read as "haiku is bad at multi-step
+planning"** - inspecting the actual failures shows the dominant cause is
+scorer phrase-strictness, not planning quality, and it's severe and
+pervasive enough that this is a scorer-methodology finding, not a
+per-case bug list:
+
+- `ms-09` (dual-write/backfill/reconcile/cutover), sample 2: step
+  `copy_historical_records` says *"Bulk copy all existing user records
+  from legacy to new datastore"* - doesn't match `"backfill"` /
+  `"copy over existing"` / `"copy historical records"` (different verb
+  choice/word order). Step `validate_copy` says *"Verify migration
+  integrity: row counts match, checksums align..."* - a textbook
+  reconciliation step that doesn't match `"reconcile"` /
+  `"verify consistency"` / `"compare record counts"`. Both steps are
+  substantively correct; the plan just isn't phrased the way the case
+  anticipated.
+- This pattern repeats across nearly every case and nearly every
+  `required_steps` group, not one or two isolated ones - the same
+  concrete-vs-anticipated-phrasing gap `architecture`'s `ar-02`/`ar-05`/
+  `ar-06` showed this session, but far more prevalent here because a
+  13-step migration plan has many more independent phrases that all have
+  to land correctly for `step_coverage` to pass, and `ordering_correct`
+  inherits every one of those misses (a group that never matches can't be
+  placed in the order check either).
+
+**This is exactly the question the N-sample mechanism was built to
+answer, and it answered it conclusively - just not in the direction
+originally expected.** The hypothesis going in was "is single-sample
+instability real model variance or case noise, and how much." The N=5
+data doesn't leave that ambiguous: with the *same* phrase-matching
+approach failing on 40+ independent, well-formed, differently-worded
+correct plans across 5 samples, the problem is structural under-coverage
+in how `multi_step.jsonl`'s phrase groups were authored, not noise. This
+validates the mechanism worked as designed (it turned "I think this might
+be noise" into "here is unambiguous evidence of which one it is") even
+though the fix now needed - a systematic rewrite of most `required_steps`
+phrase groups across all 12 cases, validated against real generated
+language rather than hand-guessed phrasing - is larger than "widen 2-3
+groups" and **deliberately not attempted in this session**. Patching 40+
+groups in one pass without individually validating each against a
+plausible-wrong plan (the two-way discipline every other suite's fixes in
+this file followed) would risk trading a strict-but-honest scorer for a
+loose-and-untrustworthy one.
+
+**A separate, real infra observation, not related to the phrase issue:**
+`ms-02` timed out on 4 of its 5 samples even at the 240s timeout (bumped
+from 60s earlier this session). The one sample that did complete
+succeeded normally ($0.0758, well within normal cost range for this
+suite), and every other case's samples completed without a single
+timeout - so this doesn't look like `ms-02`'s content specifically
+provoking runaway generation, more likely a transient rate-limit/latency
+window during that portion of the 60-call run that happened to land on
+`ms-02`. Worth watching for recurrence rather than acting on from one
+run.
+
+**Recommended follow-up (not done this session):** don't extend
+`--samples` to `code_review`/`architecture` yet (per the "multi_step
+only, for now" decision) until `multi_step.jsonl`'s phrase groups get a
+real revision pass - re-running N-sample against a case file with this
+much scorer noise would just produce a more expensive version of the same
+misleading number. The revision itself should follow the same discipline
+`code_gen`/`summarization`/every suite's case-design section describes:
+widen each group against real model output, confirm a plausible-wrong
+plan still fails after widening, don't just guess broader phrasing.
