@@ -501,3 +501,100 @@ suites the judge pass has failed mid-run with no retry - `claude_cli.py`
 has no retry/backoff (a documented rough edge), and two occurrences in one
 session is enough to flag as a real reliability gap worth a retry/backoff
 pass, not just a one-off fluke to keep manually re-running around.
+
+## Router tier calibration status (`architecture` / `architecture_v1`, as of 2026-07-25)
+
+First judged benchmark for `architecture` (12 cases), Claude tiers only.
+This is the suite `TYPE_DOMAIN_GRID` routes to flagship tier uniformly
+across every domain and the fallback for unrecognized task shapes (see
+`llm-task-router/classifier.py`) - the highest-stakes suite to calibrate
+correctly. Codex leg skipped for the same account-wide quota lockout as
+every suite above (blocked until 2026-08-22).
+
+**Infra fix made before this run could complete cleanly:** `claude_cli.py`'s
+subprocess timeout (already bumped from 60s to 120s in an earlier,
+uncommitted session for `multi_step`) still wasn't enough for
+architecture's long, multi-paragraph design responses - 3 of 12 haiku
+cases hit `ERROR: timeout` with empty `predicted={}` on the first attempt.
+Bumped to 240s (`claude_cli.py`, `test_claude_cli.py`); the retry at 240s
+completed all 12 cases cleanly. Worth remembering for any future suite
+whose expected output is long-form prose (design docs, multi-step plans) -
+the generation timeout that's fine for a one-paragraph review or a code
+diff isn't automatically fine for a several-hundred-word design writeup.
+
+| provider | model | key considerations | no anti-patterns | tradeoffs articulated | fully correct | judge coherence |
+|---|---|---|---|---|---|---|
+| claude | haiku (cheap) | 91.7% | 100.0% | 100.0% | 91.7% | 0.83 |
+| claude | sonnet (mid) | 100.0% | 91.7% | 100.0% | 91.7% | 0.87 |
+| claude | opus (flagship) | 66.7% | 91.7% | 91.7% | 58.3% | 0.79 |
+
+**Don't read opus's 58.3% as "opus is worse than haiku/sonnet at
+architecture" - it's almost certainly a scorer-strictness artifact, not a
+real capability gap, and shouldn't inform a tier decision as-is.** Two
+distinct problems inflate opus's miss count here, neither of which is a
+real design defect:
+
+1. **A genuine generation-format hiccup**: `ar-11` came back as malformed
+   JSON (`PARSE ERROR: Expecting ',' delimiter...`) on the final opus
+   sample, scoring 0 across the board with an empty `predicted={}` - not a
+   harness bug, but also not evidence of a design flaw (there's no design
+   to evaluate).
+2. **A suite-wide phrase-strictness pattern, confirmed across multiple
+   cases in the same sample, not a single one-off**: `ar-02` said "hot
+   **store**" where the phrase list wanted "hot storage"/"hot tier"; `ar-05`
+   named the concrete technology "**SQS**" where the phrase list wanted the
+   abstract "durable queue"/"message broker"; `ar-06` gave the concrete
+   value "**`s-maxage=60`**" where the phrase list wanted the abstract
+   "short TTL". All three designs were technically sound - they answered
+   with specific implementation detail instead of restating the
+   requirement's own vocabulary, which is arguably the *more* competent
+   answer, and the fact-constraint scorer penalized it anyway.
+
+**Explicitly not chased further this session - this is a suite-level
+finding, not a per-case bug list.** `ar-03`/`ar-05`/`ar-11` (see below) were
+fixed earlier in this same session because each was an isolated, clearly
+bounded word-form gap. By the time `ar-02`/`ar-05`(again)/`ar-06` turned up
+in one single re-generated sample, the pattern had stopped looking like
+"a few missed synonyms" and started looking like a structural mismatch
+between how these cases were authored (abstract requirement-phrases) and
+how competent technical answers are actually written (concrete
+implementation nouns) - the same "stop patching individual phrases,
+recognize the systemic shape" moment `multi_step` hit earlier, just via a
+different mechanism (concrete-vs-abstract vocabulary instead of
+step-ordering non-determinism). **Before trusting a tier decision off this
+suite, it needs either a scorer redesign (broader default synonym coverage
+that includes common concrete technology names, or shifting more of
+`key_considerations_addressed`'s weight onto `judge_score` instead of
+strict substring matching) or the same N-sample mechanism `multi_step` is
+waiting on - not more manual phrase-list patching.**
+
+**Real, confirmed structural fixes made earlier in this run** (word-form
+gaps, not sample noise - each confirmed by directly inspecting why a
+correct answer didn't match, same discipline as every fix in this file):
+- `ar-03`: `"idempotent"` is not a substring of `"idempotency"` (diverge at
+  the 10th character) - widened; isolation-phrase group also widened for
+  "marked invalid and skipped / continues for other files" phrasing.
+- `ar-05`: `"durable queue"` didn't match `"durable **job** queue"` (word
+  inserted mid-phrase) - widened.
+- `ar-11`: required the exact bigram `"tension between"` and didn't cover
+  the verb form `"trades"` - both confirmed against real output (one haiku
+  sample said "trades", one opus sample said "the CAP **tension**" without
+  "between") and widened. A second haiku sample, checked after widening,
+  genuinely never mentioned tradeoff/tension anywhere in `reasoning` or
+  `design` - a real, reproducible haiku gap on this specific case (2/2
+  haiku samples), left as-is.
+
+**A structural (not phrase-list) false-positive was also found and left
+undocumented-but-unfixed by design, not oversight**: `ar-07`'s
+`no_anti_patterns` checks the `design` field for bait words like
+"kubernetes", specifically excluding `alternatives_considered` so a model
+that names-and-rejects an anti-pattern there doesn't get penalized (the
+`cr-08`/`ar-09` precedent). But **haiku, sonnet, and opus all independently
+wrote their own rejection of Kubernetes inline in the `design` field's own
+prose** ("Explicitly not included, and why: no Kubernetes...") rather than
+in `alternatives_considered` - three different models, same pattern. This
+is a real scorer-scoping gap (the exclusion only covers one of two places
+a model can reasonably explain what it didn't choose), not something a
+phrase-list edit fixes. Left open rather than patched; worth a scorer
+change (pool `design` + `alternatives_considered`'s `rejected_because`
+text for `must_not_include`, not `design` alone) as its own follow-up.

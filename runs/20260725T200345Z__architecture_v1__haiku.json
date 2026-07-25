@@ -1,0 +1,369 @@
+{
+  "prompt_version": "architecture_v1",
+  "model": "haiku",
+  "provider": "claude",
+  "total_cases": 12,
+  "check_accuracies": {
+    "key_considerations_addressed": 0.9166666666666666,
+    "no_anti_patterns": 1.0,
+    "tradeoffs_articulated": 1.0
+  },
+  "fully_correct_rate": 0.9166666666666666,
+  "avg_judge_score": 0.8250000000000001,
+  "total_cost_usd": 0.5603154,
+  "total_tokens": 0,
+  "results": [
+    {
+      "test_id": "ar-01",
+      "predicted": {
+        "reasoning": "Use a managed Redis Multi-AZ instance as the authoritative, consistent counter store accessed via Lua scripts for atomic operations across all instances, with automatic failover ensuring the limiter itself is highly available.",
+        "design": "Deploy ElastiCache Redis Multi-AZ (primary + read-replica with automatic failover across AZs). Each API instance atomically checks per-API-key rate limits by executing a Lua script: increment a Redis key `rate_limit:{api_key}:{window}` (e.g., per-minute window), set its TTL to the window size (60 seconds for per-minute limits), and return the count. Reject with HTTP 429 if count exceeds the limit; otherwise allow. The Lua script ensures atomicity in a single Redis round-trip, preventing race conditions when multiple instances serve the same key. The load balancer (ALB) has no rate limit logic\u2014it only routes requests to healthy instances; each instance independently checks Redis on every request. If Redis becomes unavailable, instances fail-closed (reject with 503) to preserve quota integrity during the automatic failover (~60 seconds typical). Monitored via CloudWatch metrics on Redis node health, failover events, and script execution errors.",
+        "alternatives_considered": [
+          {
+            "option": "Separate Rate Limiter Microservice (dedicated fleet behind its own LB)",
+            "rejected_because": "Adds a second network hop (API instance \u2192 rate limiter service), increasing per-request latency from ~5ms to ~10\u201315ms, and requires deploying/operating a second critical application. The rate limiter service would itself need HA (reintroducing the multi-instance synchronization problem), and Redis Lua scripting is purpose-built for atomic counters\u2014custom application code adds complexity without reducing dependencies or improving latency."
+          },
+          {
+            "option": "Distributed eventual-consistency counters with gossip protocol sync between instances",
+            "rejected_because": "Violates the explicit 'consistent regardless of which instance' requirement. With N instances and gossip propagation delays measured in seconds, quota can be exceeded by up to N \u00d7 limit before the system converges (e.g., 5 instances \u00d71,000 req/min limit = 5,000 requests over-quota). This requires complex conflict resolution (CRDTs, vector clocks) and is only acceptable for loose abuse-prevention, not strict quota enforcement."
+          }
+        ]
+      },
+      "checks": {
+        "key_considerations_addressed": true,
+        "no_anti_patterns": true,
+        "tradeoffs_articulated": true
+      },
+      "judge_score": 0.88,
+      "judge_rationale": "The reasoning directly grounds the design in the two explicit task constraints (consistency across instances + limiter HA) by proposing a single authoritative Redis store with failover and atomic Lua operations, with specific architectural choices (Multi-AZ, scripts, per-key windowing) that technically satisfy both requirements; minor deduction only for not explicitly stating *why* Lua achieves atomicity within the one-sentence reasoning itself (though the answer elaborates it correctly).",
+      "cost_usd": 0.075409,
+      "duration_ms": 93336,
+      "token_usage": {}
+    },
+    {
+      "test_id": "ar-02",
+      "predicted": {
+        "reasoning": "Separate hot and cold storage using TimescaleDB (automatic TTL + compression) for the 24-hour fast query window and S3 Parquet for cheap historical archival, with stateless Fargate ingest servers batching writes to minimize database contention.",
+        "design": "**Ingest tier**: Stateless ECS Fargate task fleet (1\u20132 vCPU tasks, ALB for load balancing). Servers batch writes in memory (500 rows or 2 seconds, whichever first) before committing, reducing per-write contention on the hot database. Protocol: HTTP or MQTT (MQTT requires AWS IoT Core broker, add $0.75/million messages; HTTP simpler for this scale).\n\n**Hot storage (last 26 hours)**: TimescaleDB on RDS PostgreSQL, single instance r6i.3xlarge (96 GB RAM, 960 GB NVMe SSD). Sized to hold ~86.4 GB/day (10k writes/sec \u00d7 86,400 sec \u00d7 100 bytes/row) plus index overhead. Hypertables sharded by device_id to enable chunk-based compression and TTL. Compression enabled on chunks >1 hour old (~5:1 ratio). Native retention policy set to 26 hours (auto-purges rows, frees space). Index on (device_id, timestamp). Query latency: <100 ms via index seek on device_id + timestamp range.\n\n**Cold storage (>26 hours old)**: S3 Parquet files, partitioned as `year=YYYY/month=MM/day=DD/device_id=XXX/`. Hourly Lambda or Fargate task runs `SELECT * FROM sensors WHERE timestamp < NOW() - INTERVAL '24 hours'`, exports to S3 Parquet (Parquet compression 5:1 reduces 86.4 GB/day to ~17 GB/day), deletes from hot store. Optional S3 Lifecycle policy moves data to Glacier Deep Archive after 30 days for compliance archival (reduces storage cost to $0.00099/GB/month if needed).\n\n**Query interface**: Application-level routing\u2014hot queries (device_id + timestamp in last 24h) hit TimescaleDB directly; cold queries delegate to S3 Parquet via `DuckDB read_parquet()` or Athena. No intermediate query layer needed unless you require unified SQL across both (rare per scenario statement).\n\n**Availability & reliability**: Hot-store database is a single-instance SPOF. For 99.9%+ SLA, upgrade RDS to Multi-AZ (automatic failover, +$0.30/hour). Ingest fleet is stateless; individual Fargate task failure doesn't lose writes (in-memory batch buffer, acceptable for telemetry data). Cold storage (S3) is 99.99% inherently available.\n\n**Cost estimate** (AWS, us-east-1, monthly): Fargate ingest $40, RDS r6i.3xlarge $2,200, S3 Parquet $12, miscellaneous $18 = **~$2,270 baseline** (or **~$2,490 with Multi-AZ HA**).",
+        "alternatives_considered": [
+          {
+            "option": "InfluxDB Cloud (managed time-series database) for hot storage instead of TimescaleDB",
+            "rejected_because": "At 10k writes/sec, InfluxDB Cloud's per-write tier pricing costs $800\u20131,500+/month, **5\u201310x higher than TimescaleDB**. More critically, InfluxDB charges uniformly per-write regardless of age\u2014you pay InfluxDB's rates for all historical data, then still build a separate S3 export pipeline. The scenario explicitly requires storing older data cheaply; InfluxDB's flat per-write billing model actively prevents cost tiering, making it fundamentally misaligned with the stated goal."
+          },
+          {
+            "option": "Kafka + Flink event-streaming pipeline instead of direct ingest-to-database",
+            "rejected_because": "Adds operational overhead (Kafka cluster, Flink job deployment, monitoring, backpressure handling) without solving the stated problem. The scenario requires only 'store it and query the last 24h fast'\u2014not real-time multi-consumer analytics, event replay, or independent alerting/ML pipelines. Kafka is justified only if the same sensor stream must feed three+ independent systems simultaneously; the scenario describes one use case. A TTL-enabled database (TimescaleDB) is simpler, cheaper, and sufficient."
+          },
+          {
+            "option": "DuckDB (column-oriented OLAP database) instead of TimescaleDB for hot storage",
+            "rejected_because": "DuckDB has two disqualifying gaps: (a) no built-in network support\u2014multiple Fargate ingest servers cannot concurrently write without a shared sidecar (eliminates horizontal scaling) or manual sharding (operational complexity), and (b) no native TTL\u2014you'd re-implement archival manually, duplicating TimescaleDB's built-in feature. If ingest scale were constant at 1 vCPU and ops overhead were paramount, DuckDB would be second choice; but horizontal ingest scaling and TimescaleDB's native time-series features (compression, TTL, multi-client network access) justify the PostgreSQL ops tax here."
+          }
+        ]
+      },
+      "checks": {
+        "key_considerations_addressed": true,
+        "no_anti_patterns": true,
+        "tradeoffs_articulated": true
+      },
+      "judge_score": 0.85,
+      "judge_rationale": "Reasoning coherently maps all major design choices (TimescaleDB TTL/compression, S3 Parquet archival, Fargate batching) to task-specific constraints (24-hour query latency, cost tiering for older data, high-throughput ingest), avoiding generic platitudes; however, it grounds the contention-minimization strategy implicitly rather than explicitly naming the '10,000 writes/sec' figure or acknowledging the single-instance hot store as a stated limitation.",
+      "cost_usd": 0.077393,
+      "duration_ms": 93719,
+      "token_usage": {}
+    },
+    {
+      "test_id": "ar-03",
+      "predicted": {
+        "reasoning": "Scheduled Python script with per-file isolation, checksum-based idempotency, and multiple daily runs\u2014prevents cascading failures, enables safe replays, and handles late arrivals.",
+        "design": "Schedule Python script (cron/ECS Fargate/K8s CronJob, runs 4\u20136\u00d7 daily at 6am/10am/2pm/6pm UTC) to:\n\n\u2022 Scan S3 partner directory; for each CSV, validate schema against a metadata table (catches encoding shifts, renames, added/dropped columns). Invalid files \u2192 S3 quarantine prefix + error logged to `file_processing_log` table for triage.\n\n\u2022 For valid files: compute SHA256 checksum, query `processed_files` tracking table (indexed on s3_path, checksum). If checksum exists, skip (idempotent re-run). Else: load to `staging_partner_data` with columns [date_for, source_path, source_checksum, loaded_at, ...data]\u2014one bad file doesn't halt the loop.\n\n\u2022 Post-load: dbt model deduplicates staging by (date_for, source_path), picks latest by checksum, upserts main fact table via surrogate-key merge.\n\n\u2022 State & observability: `processed_files(s3_path, checksum, date_for, loaded_at, rows_loaded)` prevents duplicate rows on replay; `file_processing_log(s3_path, error_reason, logged_at)` enables diagnosis of schema drift or encoding issues. Emit CloudWatch metrics (files_processed, files_quarantined, load_latency_p95). Alert if >50% files fail or >6h elapse without successful loads.\n\n\u2022 Late arrivals: Staggered runs catch files arriving within 24h. For >24h lateness, extend to rolling 30-day reprocessing window\u2014checksum idempotency skips already-loaded files. Entire pipeline re-runs safely; checksum table prevents fact-table duplication.",
+        "alternatives_considered": [
+          {
+            "option": "Event-driven (S3 upload \u2192 Lambda \u2192 SQS \u2192 Fargate task)",
+            "rejected_because": "Requires solving 'when is the daily cohort complete?'\u2014either a timed aggregator (complex distributed state) or SQS polling (async overhead). Replaying a failed day is manual. For daily batches with hour-scale late arrivals, scheduled runs are simpler (no per-lambda invocation cost), cheaper (no SQS), and replay is automatic (just re-execute the script)."
+          },
+          {
+            "option": "AWS Glue + Step Functions (managed ETL orchestration)",
+            "rejected_because": "Adds ~$1\u20135 per run and operational complexity for validation/quarantine logic that's clearer in Python. Overkill for <1000 files/day, daily cadence. Revisit only if volume grows 10\u00d7+ or end-to-end latency requirement drops below 5 minutes."
+          },
+          {
+            "option": "dbt-only (dbt-external-tables + macros for validation/state management)",
+            "rejected_because": "dbt excels at transformation (SELECT/JOIN/aggregation), not state management or exception handling. Encoding 'track which checksums we've loaded' and 'quarantine invalid files' as dbt macros creates fragile conditional logic better expressed in imperative Python. Separate concerns: Python for validation/state/quarantine, dbt for deduplication/upsert."
+          }
+        ]
+      },
+      "checks": {
+        "key_considerations_addressed": true,
+        "no_anti_patterns": true,
+        "tradeoffs_articulated": true
+      },
+      "judge_score": 0.88,
+      "judge_rationale": "The reasoning's three stated mechanisms (scheduled Python, per-file isolation, checksum idempotency) are all present in the answer and directly justify the three stated benefits (no cascading failures, safe replays, late arrivals)\u2014e.g., per-file quarantine prevents blocking, multiple daily runs plus checksum tracking enable replays\u2014which directly address the task's core requirement that 'a bad file must not block the pipeline.' The reasoning doesn't cover every implementation detail (dbt, observability, validation), but those aren't required for justifying the *central architectural decision*; what it does address is internally consistent and grounded in specific mechanisms actually used in the answer.",
+      "cost_usd": 0.057025400000000004,
+      "duration_ms": 121318,
+      "token_usage": {}
+    },
+    {
+      "test_id": "ar-04",
+      "predicted": {
+        "reasoning": "An active-passive architecture with automated health checks and DNS-based routing failover achieves sub-5-minute RTO (typical 2-3 min) while keeping operational complexity low by avoiding distributed consistency issues inherent in active-active designs.",
+        "design": "Deploy identical stateless service tiers in primary and secondary regions, with one-way database replication (primary \u2192 secondary). Primary region receives 100% of traffic; secondary runs as warm standby with database connections active. Implement automated health checks from secondary region (or neutral external monitoring) pinging primary's load balancer every 60 seconds; after two consecutive failures (120s threshold), automatically trigger DNS/routing update to shift traffic to secondary\u2014no human action required. Set DNS TTL to 60 seconds to accelerate client convergence. Typical RTO: 2-3 minutes (60s detection + 60s confirmation + 60s DNS propagation), worst-case under 5 minutes. Use managed DNS health-check services (AWS Route53, Cloudflare, etc.) to automate failover without manual intervention. Secondary region maintains warm database connections and minimal inbound traffic to catch application defects early. Database replication lag < 100ms ensures secondary has near-current state on failover.",
+        "alternatives_considered": [
+          {
+            "option": "Active-Active with event streaming (Kafka/CDC for cross-region consistency)",
+            "rejected_because": "Introduces distributed-consensus overhead (event ordering, idempotency, conflict resolution) and operational burden of running Kafka clusters in both regions, without improving RTO below 5 minutes\u2014active-passive already achieves ~2-3 min RTO with a single authoritative database, eliminating eventual-consistency bugs in a critical service. Active-active only becomes necessary for zero-downtime deployments across regions or sub-second RTO, neither of which is stated. Added complexity outweighs benefit for the stated constraints."
+          },
+          {
+            "option": "Three-region setup with quorum-based failover",
+            "rejected_because": "Adds cost and operational complexity (consensus logic, three-region replication) without addressing any explicit constraint\u2014RTO is met with two regions, and no SLA scale is specified. Three regions become justified only for higher-tier SLAs (99.99%+) and independent failure-domain resilience; 'critical internal service' doesn't map to that tier. Introduces failure modes (network partitions, quorum deadlocks) without stated need."
+          }
+        ]
+      },
+      "checks": {
+        "key_considerations_addressed": true,
+        "no_anti_patterns": true,
+        "tradeoffs_articulated": true
+      },
+      "judge_score": 0.83,
+      "judge_rationale": "The reasoning coherently explains the active-passive choice with specific RTO targets (2\u20133 min typical, <5 min worst-case) grounded in the stated 5-minute constraint and no-manual-intervention requirement, correctly cites automated health checks and DNS failover as the implementation mechanism, and provides concrete technical justification (avoiding distributed-consensus complexity); however, it doesn't explicitly ground the one-way database replication trade-off or mention RPO implications, leaving the data-loss risk implicit rather than stated.",
+      "cost_usd": 0.0409966,
+      "duration_ms": 85180,
+      "token_usage": {}
+    },
+    {
+      "test_id": "ar-05",
+      "predicted": {
+        "reasoning": "Use PostgreSQL as the single source of truth for job state and queue, with a heartbeat-based reaper process detecting stale workers\u2014this satisfies durability on crash without adding a separate message broker, keeping ops simple for the stated 10+ minute job duration where polling latency is not a bottleneck.",
+        "design": "**Core components:**\n\n1. **Job state table** (`reports`) with columns: id, user_id, status (queued/processing/completed/failed), input (JSONB), progress_percent, result_url, worker_id, updated_at, created_at, completed_at, error_message. Single source of truth for durability.\n\n2. **Job claiming** via `SELECT * FROM reports WHERE status='queued' ORDER BY created_at LIMIT 1 FOR UPDATE SKIP LOCKED` \u2014 atomic, non-blocking claim that prevents two workers processing the same job. Worker updates status to 'processing' in the same transaction.\n\n3. **Durability on crash**: Each worker updates `updated_at` every 30 seconds while processing. A separate \"reaper\" process (cron job or long-running task) queries for `status='processing' AND updated_at < NOW() - INTERVAL '5 minutes'`, resets those back to 'queued', and logs the failure. If a worker crashes mid-job, the heartbeat stops, the reaper finds it, and the job is retried within the timeout window. Job is never lost because it lives in the database.\n\n4. **Status endpoint** (`GET /api/reports/{id}`) returns current status, progress_percent, error_message, and result_url. Works from any browser, any time, independent of the original page.\n\n5. **Result storage**: For 10+ minute reports, assume non-trivial output; store the actual report in S3/object storage, and keep the URL in the database. Alternative for smaller reports: store serialized result directly in a `result` JSONB column.\n\n6. **Retry strategy**: Add a `retry_count` column; reaper resets to 'queued' only if retry_count < 3, otherwise marks 'failed' with error. Exponential backoff optional (add `last_retry_at` and check elapsed time before resetting).\n\n7. **Idempotency**: Report generation should be deterministic (same input \u2192 same output) or include deduplication logic (e.g., check if result_url is already populated before regenerating). If a job is claimed twice due to race condition, the second one is a no-op.\n\n**Tech stack**: FastAPI backend with a simple SQLAlchemy or psycopg2 job claim loop; separate worker process(es) in Python or Go, same or different service. No external message broker needed. Heartbeat/reaper can be a simple async task in the main service or a separate lightweight process.",
+        "alternatives_considered": [
+          {
+            "option": "Redis-based job queue (e.g., Bull, RQ, Celery) with no persistent backing store",
+            "rejected_because": "Redis-only architectures satisfy the 'worker crash' requirement (job claims are acknowledged atomically) but not the 'job must not be lost' requirement if Redis itself crashes. Achieving true durability would require Redis Sentinel + RDB/AOF + replicas, which adds operational complexity. PostgreSQL's ACID guarantees give you single-system durability and job claiming in one, with no additional infrastructure; for 10+ minute jobs, the polling latency of SELECT-based claiming (5\u201310 second intervals) is negligible compared to the job duration."
+          },
+          {
+            "option": "AWS Lambda with SQS for job queue and DynamoDB for state",
+            "rejected_because": "Lambda's 15-minute timeout is a hard ceiling; a 10+ minute job plus initialization/cleanup leaves no safety margin, and exceeding the timeout loses the job mid-processing anyway. You'd still need a separate state database to survice Lambda's statelessness, and if Lambda gets interrupted at 14:59, no retry mechanism is triggered automatically. For a service already running on your infrastructure, PostgreSQL + worker pool is simpler to reason about, cheaper at this scale, and avoids the cold-start latency for a 10+ minute task."
+          }
+        ]
+      },
+      "checks": {
+        "key_considerations_addressed": true,
+        "no_anti_patterns": true,
+        "tradeoffs_articulated": true
+      },
+      "judge_score": 0.75,
+      "judge_rationale": "Reasoning correctly ties PostgreSQL+heartbeat-reaper to the specific task constraints (10+ minute duration making polling latency acceptable, crash durability via persistent writes) and the design delivers on that premise; however, it glosses over the heartbeat-timeout window as a trade-off and doesn't explicitly state the ACID persistence mechanism that actually prevents job loss.",
+      "cost_usd": 0.022396500000000003,
+      "duration_ms": 50582,
+      "token_usage": {}
+    },
+    {
+      "test_id": "ar-06",
+      "predicted": {
+        "reasoning": "Layer a CDN with 60-second TTL and explicit cache invalidation triggered on every publish, backed by ETag-based conditional revalidation, to meet the 1-minute freshness requirement while ensuring the origin sees at most one request per TTL period during spikes.",
+        "design": "**CDN-Based Caching with Publish-Time Invalidation**\n\n1. **CDN Layer** (Cloudflare, CloudFront, etc.)\n   - Set `Cache-Control: public, max-age=60` on the homepage response\n   - CDN absorbs all spike traffic; during a viral event, 100k+ req/sec are served from cache without touching the origin\n   - Single request per TTL period (worst case 60 sec) reaches the origin, not per-spike-req\n\n2. **Explicit Cache Invalidation on Publish**\n   - When an editor publishes, the backend atomically:\n     a. Writes content to database\n     b. Calls CDN invalidation API immediately (Cloudflare purge_cache, CloudFront CreateInvalidation, etc.)\n     c. Returns 200 to editor (don't block on CDN)\n   - First visitor post-publish triggers cache miss \u2192 origin fetch \u2192 fresh content visible in ~100-500ms\n   - Invalidation is async; completes globally in 1-3 seconds (CDN SLA)\n   - Meets 1-minute requirement even if invalidation API is slow; fallback TTL guarantees freshness by 60 seconds\n\n3. **Conditional Revalidation (ETag Support)**\n   - Origin always returns `ETag` header and respects `If-None-Match`\n   - After TTL expiry on a revalidation request, origin checks ETag and returns 304 Not Modified if content is unchanged\n   - CDN refreshes the TTL without re-rendering; origin skipped expensive HTML generation\n   - During a spike where users revisit after TTL expiry, origin receives only conditional requests (cheap) not full renders\n\n4. **Origin-Layer Cache (Redis, optional but recommended)**\n   - Sit Redis between the origin app and database (or database cluster)\n   - Cache miss at CDN \u2192 revalidation hits Redis \u2192 cache hit (avoid DB query storm)\n   - Invalidate Redis on every publish (same publish event that triggers CDN invalidation)\n   - TTL: 90-120 seconds (doesn't need to match CDN TTL; survives brief CDN miss storms)\n\n5. **Publish Workflow**\n   ```\n   Editor clicks Publish\n     \u2192 Backend: save content \u2192 invalidate Redis \u2192 call CDN invalidation API \u2192 return 200\n     \u2192 CDN: clear cached homepage\n     \u2192 Next visitor: cache miss \u2192 origin fetch \u2192 CDN repopulates cache\n     \u2192 Subsequent visitors: cache hit for 60 seconds\n   ```\n\n**During a Traffic Spike:**\n- Spike traffic (100k req/sec) hits CDN, all served from cache for 60 seconds\n- Origin continues normally, serves non-homepage traffic, databases run unaffected\n- If cache miss occurs (e.g., due to spike overwhelming CDN edge), revalidation is conditional (ETag), not a full render\n- Origin throughput during spike: ~1 req/min if cache stays hot; worst case (cold start): 1 conditional req/sec, not 100k\n\n**Fallback Guarantees:**\n- If CDN invalidation API fails/times out, the 60-second TTL ensures freshness by hard deadline\n- If origin returns error (500), CDN has options (serve stale, fall back to last known-good, etc.) per policy",
+        "alternatives_considered": [
+          {
+            "option": "Long TTL (5-10 minutes) with background refresh job that re-fetches the page 30 seconds before expiry",
+            "rejected_because": "Does not meet the 1-minute freshness requirement. If an editor publishes and the background refresh hasn't run yet, the first visitor sees stale content for up to 5-10 minutes, not within 60 seconds. If the refresh job fails, freshness window extends indefinitely. Additionally, background refresh doesn't reduce origin load during a spike\u2014each refresh still hits the origin for a full render."
+          },
+          {
+            "option": "Very short TTL (10-30 seconds) on CDN without explicit invalidation",
+            "rejected_because": "Does not adequately protect the origin during a spike. A viral event lasting 5 minutes would trigger 10k+ revalidation requests per second to the origin (once every 10-30 seconds from each concurrent user), still overwhelming it. The tight TTL feels like 'no caching' operationally and doesn't provide spike protection\u2014it only spreads load across the spike duration rather than eliminating it."
+          },
+          {
+            "option": "Stale-while-revalidate header (5-minute TTL with 60-second SWR window) and no explicit invalidation",
+            "rejected_because": "Violates the 1-minute freshness requirement for the first visitor immediately after publish. The first viewer would receive cached (pre-publish) content while background revalidation runs asynchronously, pushing actual freshness to 5+ minutes in the worst case. The 1-minute SLA requires explicit invalidation, not just hoping revalidation completes in time."
+          },
+          {
+            "option": "Static HTML file regeneration on every publish, uploaded to S3/blob storage served directly",
+            "rejected_because": "Over-engineered. Requires a deployment/build step on every publish (slower, more failure modes), introduces blob storage dependency and sync complexity, and doesn't provide meaningfully better protection than CDN caching with invalidation. A failed upload could leave the 'published' content unpublished. Standard HTTP CDN + invalidation is simpler, already-available, and easier to operate."
+          }
+        ]
+      },
+      "checks": {
+        "key_considerations_addressed": true,
+        "no_anti_patterns": true,
+        "tradeoffs_articulated": true
+      },
+      "judge_score": 0.62,
+      "judge_rationale": "The reasoning is internally coherent\u2014CDN + invalidation + ETags do combine logically\u2014and references task-specific constraints (1-minute freshness, spike protection) rather than generic advice, but it oversimplifies the spike-protection mechanism (claims 'at most one request per TTL period' which doesn't account for conditional-revalidation requests after TTL expiry during a spike) and conflates invalidation latency with TTL as if they operate on the same timescale, without explaining the actual sequence: invalidation \u2192 100-500ms fresh content \u2192 TTL fallback guarantees. The reasoning justifies *that* it works but not *why*, reading more like a labeled summary than step-by-step reasoning.",
+      "cost_usd": 0.031236,
+      "duration_ms": 70198,
+      "token_usage": {}
+    },
+    {
+      "test_id": "ar-07",
+      "predicted": {
+        "reasoning": "For 30 users and <100 predictable req/day, minimize operational complexity by running a single t3.micro EC2 instance with local PostgreSQL, avoiding the overhead of managed services (RDS, Fargate, Lambda) that only pay off at higher scale; automate backups and monitoring with CloudWatch to meet the reliability requirement without adding operational burden.",
+        "design": "Single EC2 t3.micro instance (Ubuntu 22.04 LTS) running FastAPI in a systemd-managed Python virtual environment, with PostgreSQL 15 on a dedicated EBS gp3 volume (~20 GB). Next.js frontend deployed to Vercel. Infrastructure managed via Terraform (EC2, security groups, EBS snapshots, CloudWatch alarms). Automated daily EBS snapshots with 5-day retention for backup/restore (RTO ~10 min to relaunch instance from AMI, RPO ~24 hours). CloudWatch agent streams logs and instance metrics; SNS alerts on instance failure or high error rates. No load balancer, no auto-scaling, no managed database service \u2014 single point of failure is acceptable for an internal tool at this scale and dramatically simplifies troubleshooting (one SSH target, one service to restart, one monitoring dashboard). Estimated cost: $12-15/month (t3.micro compute, EBS snapshots, CloudWatch agent).",
+        "alternatives_considered": [
+          {
+            "option": "ECS Fargate + RDS + Application Load Balancer",
+            "rejected_because": "At 100 req/day, operational overhead exceeds benefit. RDS minimum is $30+/month, ALB another $16+/month, vs. $3/month for local EBS storage. You don't eliminate toil\u2014you trade EC2 management for Fargate task definitions, IAM policies, and RDS parameter tuning. Scaling policies and service definitions add complexity that never trigger because load is flat and predictable. Single t3.micro is 4x cheaper, simpler to debug (one box to SSH into), and scales to 10,000 req/day before this architecture becomes necessary. Below that threshold, it's premature; it makes the system more fragile (more components to fail), not more reliable."
+          },
+          {
+            "option": "Lambda + API Gateway + DynamoDB",
+            "rejected_because": "Cold-start latency and cost-per-request penalize you at this steady scale. FastAPI on warm t3.micro is <100 ms; Lambda's first call in an hour is 500+ ms cold start. Your traffic (steady business hours, flat <100 req/day) requires reserved concurrency to avoid cold starts, eliminating serverless's main advantage (you pay anyway). Reserved t3.micro ($10/month) costs 2-3x less than Lambda execution ($15-20/mo) + API Gateway ($5-10/mo) + DynamoDB minimum ($20+/mo). Only choose Lambda if traffic is unforecastable, bursty, or has hours-long idle gaps; this workload fits none of those patterns."
+          }
+        ]
+      },
+      "checks": {
+        "key_considerations_addressed": true,
+        "no_anti_patterns": true,
+        "tradeoffs_articulated": true
+      },
+      "judge_score": 0.91,
+      "judge_rationale": "The reasoning is internally coherent (small-scale + predictable traffic \u2192 avoid managed services overhead \u2192 single-instance simplicity) and specifically grounded in task details (30 users, <100 req/day, predictable, reliability, ease of operation), with no generic claims\u2014each choice is justified by actual scale thresholds and operational constraints rather than unsupported assertions.",
+      "cost_usd": 0.04393430000000001,
+      "duration_ms": 100297,
+      "token_usage": {}
+    },
+    {
+      "test_id": "ar-08",
+      "predicted": {
+        "reasoning": "Never store raw card data yourself; use a PCI-DSS compliant payment processor for tokenization, shifting both compliance burden and liability off your infrastructure while enabling recurring billing with minimal scope.",
+        "design": "**Architecture: Payment Processor Tokenization Model**\n\n**Payment Flow:**\n1. Frontend captures card via processor's hosted form (Stripe Elements, Adyen Hosted Payment Page, etc.) \u2014 never transmits raw card data to your servers\n2. Processor tokenizes the card, returns a reusable token (e.g., `src_1A2B3C4D5E6F`) and processor customer ID\n3. Your backend stores (customer_id, processor_token, card_last_4, card_type, expiry_month/year, created_at) in `payment_methods` table \u2014 never the full PAN\n4. For subscription renewal, call processor API: `POST /charges` with (customer_id, payment_method_token, amount)\n5. Processor handles all card data, encryption, and compliance; returns charge record for audit logging\n\n**Database Schema:**\n- `customers`: (id, email, created_at)\n- `payment_methods`: (id, customer_id, processor_token, card_last_4, card_type, expiry_month, expiry_year, is_default, created_at) \u2014 no raw PAN, CVV, or track data\n- `subscriptions`: (id, customer_id, payment_method_id, amount_cents, billing_cycle_days, status, next_billing_date, created_at)\n- `charges`: (id, subscription_id, processor_charge_id, amount_cents, status, processor_response_json, created_at) \u2014 idempotent charge deduplication via processor_charge_id\n\n**Compliance & Security:**\n- PCI-DSS Scope: **SAQ A-EP** (self-assessed, <10 pages) \u2014 you handle tokens only, never raw card data\n- Card data security: delegated to processor (Level 1 certified, SOC 2 audited)\n- Your network: no special segmentation, firewall, or HSM needed for card storage (irrelevant)\n- Key rotation: processor manages their keys; you manage API keys (short-lived, rotated per env)\n- Logging: log processor responses (charge status, timestamp, last 4 digits for reconciliation) \u2014 never log tokens or full expiry dates\n- Retries: use processor's idempotency keys (`Idempotency-Key: <subscription_id>-<billing_date>`) to prevent duplicate charges on network failures\n\n**Recurring Billing Specifics:**\n- Scheduler (cron or Lambda) runs daily at fixed time, queries subscriptions with `next_billing_date <= today` and status='active'\n- For each, call processor API with stored token \u2192 capture charge\n- On success: create charge record, update subscription's `next_billing_date` to `date_add(today, interval billing_cycle_days day)`\n- On decline: log error, mark subscription as `requires_action`, send email with retry link (link re-presents payment form to update card)\n- Processor webhooks (`charge.succeeded`, `charge.failed`, `customer.deleted`) are authoritative source of truth for charge status \u2014 your polling is redundant but good for reconciliation\n\n**Why Not Store Encrypted Card Data Yourself:**\nStoring encrypted PAN (even at rest) still requires PCI-DSS Level 1 compliance: HSM for key management, annual penetration testing, dedicated compliance officer, audit overhead (~$50-200k+/year), and *you* carry liability if breached. A processor's token has zero value to an attacker (can't decrypt to a real card, can't reuse outside your account), so breach of your token store is low-impact.",
+        "alternatives_considered": [
+          {
+            "option": "Store encrypted card data in your own PCI-DSS Level 1 vault (encrypted at rest, TLS in transit, HSM-managed keys, network segmentation, annual penetration tests).",
+            "rejected_because": "Shifts all compliance and security responsibility onto you. Requires $50-200k+/year audit/compliance infrastructure, dedicated security team, and full liability for any breach. Payment processors are built to absorb this cost across thousands of customers, making their per-customer security spend an order of magnitude cheaper than building it yourself. Unless you're a bank or have unique regulatory constraints preventing you from using third parties, this is over-engineering and economically irrational."
+          },
+          {
+            "option": "Hybrid: use processor tokens for live charging, but also store limited encrypted card metadata locally (last 4 digits, expiry, card type, processor customer ID) for faster subscription lookup and reconciliation without hitting the processor API on every query.",
+            "rejected_because": "Adds unnecessary operational complexity (local encryption key management, separate audit trail) without real benefit. Subscription renewal is not performance-critical \u2014 a single processor API call (which typically completes in <100ms) per billing cycle is acceptable latency. Processor already provides fast customer/subscription lookups via their API. The extra local vault would need its own key rotation, access controls, and breach monitoring, recreating the PCI-DSS scope problem you're trying to avoid."
+          }
+        ]
+      },
+      "checks": {
+        "key_considerations_addressed": true,
+        "no_anti_patterns": true,
+        "tradeoffs_articulated": true
+      },
+      "judge_score": 0.83,
+      "judge_rationale": "The reasoning directly addresses the task's two explicit requirements (PCI-DSS compliance and recurring subscriptions), identifies the core principle (processor tokenization), articulates both mechanism (shift burden to processor) and outcome (minimal scope), and the answer is a detailed implementation of exactly what the reasoning recommends\u2014no contradictions or disconnects\u2014though the reasoning could be marginally more explicit about why tokenization specifically satisfies PCI-DSS scope reduction rather than relying on reader familiarity with SAQ A-EP.",
+      "cost_usd": 0.014263999999999999,
+      "duration_ms": 32022,
+      "token_usage": {}
+    },
+    {
+      "test_id": "ar-09",
+      "predicted": {
+        "reasoning": "Multi-region active-passive with synchronous replication and automated failover achieves 99.99% uptime by tolerating complete regional failure with zero data loss and <10-second failover, eliminating SPOFs at every architectural layer.",
+        "design": "Primary PostgreSQL database in Region A with synchronous streaming replication to Region B standby (synchronous_commit=on ensures zero RPO). Patroni + etcd coordinates automatic failover promotion within 10 seconds on primary failure; Route53 health-checks region A every 5 seconds and routes to region B after 3 consecutive failures (~10s total failover window). Stateless payment-processing services deployed in both regions behind regional load balancers (ALB/NLB). Idempotency via request deduplication: every client request includes an idempotency key; first processing stores result in Redis/DynamoDB with 30-second TTL; duplicate requests return cached result, guaranteeing safe retries across failover without double-charging. PCI-DSS compliance: card data never stored locally; external tokenization service handles token generation, backend processes only tokens and transaction amounts. Monitoring: Prometheus tracks replication lag (alert >5s), synthetic health checks every 30 seconds, per-region uptime metrics. No SPOF: app-server failure \u2192 load balancer routes to another; load balancer failure \u2192 managed service auto-recovery or Route53 failover; primary database failure \u2192 standby auto-promoted; entire region down \u2192 cross-region failover. Uptime budget (52 minutes/year): ~20 min planned maintenance (rolling deployments with zero-downtime strategies), ~30 min unplanned (one catastrophic regional outage 5-10 min recovery, plus rare compounded faults).",
+        "alternatives_considered": [
+          {
+            "option": "Single-region architecture with maximum within-datacenter redundancy (N app servers, replicated databases, redundant load balancers and network links, multiple ISP carriers if available)",
+            "rejected_because": "Single-region redundancy achieves 99.95-99.97% when component failures are independent (one server down is masked by load balancer routing). But data-center-level failures\u2014power outage, backbone fiber cuts, HVAC failure\u2014are correlated and simultaneously take down all replicas. 99.99% requires surviving the loss of an entire facility. Only geographic diversity breaks that correlation."
+          },
+          {
+            "option": "Multi-region active-active with Raft/Paxos consensus across both regions for every write",
+            "rejected_because": "Achieves full redundancy and zero data loss but requires quorum across regions for each write, adding ~75ms latency for cross-region coordination. Payment authorization APIs target 1-2 second p99 latency; consensus adds 5-10% overhead and compounds under load. Synchronous replication + automated failover achieves 99.99% and zero RPO without this latency penalty. High-uptime payment systems favor failover efficiency over consensus complexity because authorization-path latency is directly cost-sensitive."
+          }
+        ]
+      },
+      "checks": {
+        "key_considerations_addressed": true,
+        "no_anti_patterns": true,
+        "tradeoffs_articulated": true
+      },
+      "judge_score": 0.82,
+      "judge_rationale": "The reasoning is specific to the architecture task (multi-region active-passive with synchronized replication and automated failover) and directly grounds itself in the stated constraints (99.99% uptime, no single points of failure), including quantified parameters (<10-second failover) that the design fully supports with concrete implementations (Patroni, Route53, synchronous_commit=on). However, it asserts the approach 'achieves 99.99% uptime' without explaining the causal chain (why this RTO aligns with that uptime percentage\u2014the math is in the design, not the reasoning), and doesn't hint at the tradeoff reasoning that would justify this choice over active-active or single-region maximally-redundant alternatives, even though the design provides it.",
+      "cost_usd": 0.0680855,
+      "duration_ms": 148210,
+      "token_usage": {}
+    },
+    {
+      "test_id": "ar-10",
+      "predicted": {
+        "reasoning": "For 200 users and a hard $200/month cap, use Loki (open-source, efficient time-series log store) on t4g.micro with S3 archival\u2014this keeps actual cost at ~$20\u201325/month while providing queryable 30-day retention and acceptable HA via EC2 auto-recovery.",
+        "design": "Single t4g.micro EC2 instance ($10/month on-demand, us-east-1) runs Loki 2.x with a 100 GB gp3 EBS volume ($10/month) for index I/O. SaaS app logs via Promtail agent or embedded HTTP client (free, bundled with Loki). Loki maintains an in-memory LSM index of the last 30 days (~300\u2013400 MB overhead), enabling sub-second LogQL queries; logs >30 days auto-ship to S3 (~$2/month for 75 GB of archived events, assuming 5k events/day). All transfers within region (no egress charge). EC2 auto-recovery + SystemD service restart ensure ~99.5% uptime\u2014acceptable for logs as non-critical audit trail (if logs are compliance-critical, this design requires HA failover, breaking budget). CloudWatch alarms on instance health (~$1/month). Total: ~$23/month actual spend, $177 buffer. No sampling or filtering needed at this event volume.",
+        "alternatives_considered": [
+          {
+            "option": "S3 + Athena + Lambda (fully serverless)",
+            "rejected_because": "Athena queries scan raw S3 files, incurring 10\u201330 second latency for a 30-day scan\u2014acceptable for monthly compliance reports but unacceptable for real-time debugging (primary log use case). Loki's in-memory index delivers <1 second queries for the same cost."
+          },
+          {
+            "option": "ELK Stack (Elasticsearch + Logstash + Kibana) on t4g.small (~$30\u201340/month)",
+            "rejected_because": "Elasticsearch needs 2\u20134 GB RAM, forcing t4g.small ($10/month) + 200 GB EBS ($20/month). Loki achieves identical query latency on t4g.micro with 1/3 the memory and disk I/O overhead; operational burden (shard rebalancing, cluster health, version management) is also much higher on Elasticsearch for this workload."
+          },
+          {
+            "option": "Managed service (Datadog, Splunk, Loggly)",
+            "rejected_because": "Datadog free tier caps retention at 3 days; production tiers cost $200\u2013500+/month, consuming entire budget. Per-GB ingestion pricing creates uncontrolled cost risk on unexpected traffic spikes. Only self-hosted Loki guarantees both the $200 ceiling and full 30-day queryable retention."
+          }
+        ]
+      },
+      "checks": {
+        "key_considerations_addressed": true,
+        "no_anti_patterns": true,
+        "tradeoffs_articulated": true
+      },
+      "judge_score": 0.88,
+      "judge_rationale": "The reasoning directly justifies the design through specific task details (200 users, $200/month hard cap, 30-day queryability requirement) and grounds the choice in concrete technical tradeoffs (Loki's sub-second query latency vs. alternatives' higher resource costs); the $23/month cost breakdown matches the stated ~$20-25 estimate, and the HA-vs-budget tradeoff is explicitly acknowledged as acceptable for non-critical logs, though that non-critical assumption itself isn't explicitly derived from the task statement.",
+      "cost_usd": 0.04811100000000001,
+      "duration_ms": 107680,
+      "token_usage": {}
+    },
+    {
+      "test_id": "ar-11",
+      "predicted": {
+        "reasoning": "Single-region authoritative primary with multi-region read replicas preserves strong consistency via serialization while achieving global read latency via geo-distributed reads and edge caching; write latency to primary region is acceptable because cart mutations are infrequent and can be optimistic from client perspective.",
+        "design": "PostgreSQL primary in one region (e.g., us-east-1) handles all cart mutations with optimistic locking (version field) to serialize writes and detect concurrent modifications per user. Read replicas stream from primary in 3+ major regions (us-west-2, eu-west-1, ap-southeast-1 minimum) with <1s replication lag; application servers in each region query nearest read replica by default. On write, client sends expected version; if concurrent write occurred, primary returns conflict error and fresh state, client retries \u2014 this ensures linearizable writes per user without global locking. Fallback to primary read if replica lag exceeds threshold (5s), preventing stale reads. CloudFront edge caching with 5-10s TTL and version-keyed cache entries achieves <50ms p50 latency globally; any write triggers cache purge to prevent stale responses. This delivers strong consistency (single serialization point, <1s bounded replication lag, version-aware conflict detection) and global read latency (<100ms p99 via replicas + edge cache) with no stale or conflicting state visible to users. Write latency to primary is 150-300ms from distant regions (geometric consequence of single-region consistency), but acceptable for cart since mutations are infrequent, asynchronous from user view, and UI can be optimistic (show item added immediately, confirm on server response).",
+        "alternatives_considered": [
+          {
+            "option": "Multi-region active-active with CockroachDB or Spanner for distributed strong consistency everywhere",
+            "rejected_because": "Every write requires consensus across regions even for local clients, adding P50/P99 latency overhead and operational complexity (distributed transaction debugging, quorum failures); consensus scales poorly with geographic distance; overkill for shopping cart where all writes to one cart originate from single user (zero contention), making single-region serialization natural, and where traffic is read-heavy (page loads >> mutations)"
+          },
+          {
+            "option": "Geo-sharded primaries (each region owns subset of user carts, eventual consistency across regions)",
+            "rejected_because": "Violates strong consistency requirement when user travels between regions or accesses cart from multiple geographies \u2014 network partition between regional primaries produces conflicting views; adds unnecessary complexity (region routing, cross-region cache coherence, user migration) for explicit requirement that cart must never show conflicting state"
+          }
+        ]
+      },
+      "checks": {
+        "key_considerations_addressed": false,
+        "no_anti_patterns": true,
+        "tradeoffs_articulated": true
+      },
+      "judge_score": 0.82,
+      "judge_rationale": "The reasoning directly addresses both stated constraints (strong consistency via single-region serialization; global read latency via replicas + caching) and coherently justifies the tradeoff, but rests on an unstated domain assumption\u2014'cart mutations are infrequent'\u2014that isn't derivable from the task statement itself; this assumption is reasonable and well-justified in the alternatives_considered section, but the one-sentence reasoning presents it as a given rather than an assumption, creating a gap between what's in the task prompt and what the reasoning claims.",
+      "cost_usd": 0.0485826,
+      "duration_ms": 111241,
+      "token_usage": {}
+    },
+    {
+      "test_id": "ar-12",
+      "predicted": {
+        "reasoning": "At $500/month with explicit 99.99% uptime and strong consistency requirements for billing records, use RDS PostgreSQL multi-AZ (primary + automatic standby) for HA, stateless app tier behind a load balancer, and route non-critical reads to an async read replica to reduce primary load without compromising write durability or billing correctness.",
+        "design": "**Data Durability & High Availability**: RDS PostgreSQL db.t3.small with multi-AZ standby (~$60\u201365/month). Synchronous replication to standby ensures zero data loss on primary failure; automatic failover via RDS or manual via Patroni achieves 99.99% uptime by eliminating the database as a single point of failure. Failover latency is 10\u201330 seconds (brief, managed outage). **Write Path (Strong Consistency)**: All billing record writes (charges, payments, refunds) are ACID transactions that hit the primary, validated before commit. This is your source of truth\u2014no data loss, no inconsistency. **Read Paths (Selective Consistency Relaxation)**: Critical reads (\"did this charge succeed?\", deduplication checks, open-balance for payment decision) query the primary and must see committed writes immediately. Non-critical reads (customer balance query, transaction history, invoice retrieval) route to a read replica in the same AZ (~$30\u201335/month). Replica lags by 1\u20135 seconds typically; a customer's balance query might not reflect a charge submitted 2 seconds prior, but the charge *was* recorded durably on the primary. **Application Tier**: 2\u20133 stateless services on t3.micro instances (~$15\u201325/month) or Fargate behind an ALB (~$20/month). PgBouncer connection pooling with health checks every 5 seconds; on primary failure, app reconnects to promoted standby (automatic or manual trigger). **Immutability & Audit**: CDC (change-data-capture) or timed export streams billing events to S3 (~$10/month). Provides an immutable audit trail for compliance and enables async analytics/reconciliation without blocking the critical path. **Total cost**: ~$135\u2013160/month, leaving $340/month headroom for scaling or monitoring. **Uptime**: Primary (99.9%, one node) + standby failover (reduces effective downtime from hours to ~20 seconds) = 99.99% SLA met. App tier redundancy (2\u20133 instances) adds another layer of resilience.",
+        "alternatives_considered": [
+          {
+            "option": "Single RDS instance (no multi-AZ standby)",
+            "rejected_because": "Saves ~$30\u201335/month but creates an explicit single point of failure in the primary database. A hardware failure, OS patch, or correlated bug leaves billing dark (complete outage, not partial degradation). At small scale, an outage lasting 2\u20134 hours is plausible without standby\u2014losing that revenue far exceeds $30/month, and billing outages damage customer trust disproportionately. 99.99% uptime is explicit; this option violates it."
+          },
+          {
+            "option": "Eventually-consistent data store (DynamoDB with eventually-consistent reads, or Cassandra)",
+            "rejected_because": "Billing transactions cannot tolerate eventual consistency on the critical path. 'Eventually consistent' means the system might tell a customer 'charge succeeded' and then lose the charge during a partition, or create duplicate charges during a split-brain. DynamoDB's strongly-consistent reads (which you'd need for billing) cost more per operation than RDS at this scale ($50\u201370/month minimum), negate cost savings, and add operational burden (no SQL, harder to audit, schema is rigid). The design already provides eventual consistency where it's safe (non-critical reads via replica); applying it to the billing record itself is a category error."
+          },
+          {
+            "option": "Kafka + event-sourced ledger (source-of-truth is an append-only event log, reads are materialized views)",
+            "rejected_because": "Textbook over-engineering. Kafka cluster (~$200+/month minimum), schema registry, consumer-lag monitoring, and replay tooling add operational overhead this team likely isn't sized for. Event sourcing solves *temporal* problems (replaying history, handling complex business logic revisions) and multi-region scaling\u2014neither is stated here. A simpler approach (audit trail via CDC, strong consistency via single primary) achieves the same correctness with 1/5th the infrastructure cost. Revisit when transaction volume demands Kafka's throughput, not before."
+          },
+          {
+            "option": "Multi-region active-active replication with conflict resolution",
+            "rejected_because": "$500/month budget cannot span regions. 2x RDS instances + 2x app tier + cross-region data transfer + conflict resolution logic easily consumes $350\u2013400/month, leaving no room for monitoring or scaling. If the true requirement is regional DR (survive a region-wide outage), that's a separate, explicit budget decision\u2014not something to fold into a per-month cost cap. If the requirement is only 99.99% within a single region, single-region HA via standby is sufficient and correct."
+          }
+        ]
+      },
+      "checks": {
+        "key_considerations_addressed": true,
+        "no_anti_patterns": true,
+        "tradeoffs_articulated": true
+      },
+      "judge_score": 0.83,
+      "judge_rationale": "The reasoning explicitly cites all major task constraints ($500/month, 99.99% uptime, strong consistency for billing records) and proposes a coherent architecture where each component (multi-AZ for HA, stateless app tier, async replica for non-critical reads) logically follows from those constraints; it directly addresses the task's request to understand consistency tradeoffs by clarifying what's relaxed (non-critical reads via replica lag) vs. preserved (write durability), though it defers specifics about which read patterns are critical to the design itself.",
+      "cost_usd": 0.032881499999999994,
+      "duration_ms": 73647,
+      "token_usage": {}
+    }
+  ]
+}
