@@ -455,3 +455,49 @@ scoring was unaffected and already showed 100%), producing `avg_judge_score
 (looks like a real bad score if you don't check the error text). Deleted
 and re-ran rather than trusted; the re-run's `avg_judge_score` (0.85) is
 what's in the table above.
+
+## Router tier calibration status (`refactor` / `refactor_v1`, as of 2026-07-25)
+
+First judged benchmark for `refactor` (12 cases), Claude tiers only. Codex
+leg skipped for the same account-wide quota lockout as every suite above
+(blocked until 2026-08-22).
+
+| provider | model | tests passed | smells removed | fully correct | judge coherence |
+|---|---|---|---|---|---|
+| claude | haiku (cheap) | 100.0% | 100.0% | 100.0% | 0.88 |
+| claude | sonnet (mid) | 100.0% | 100.0% | 100.0% | 0.87 |
+| claude | opus (flagship) | 100.0% | 100.0% | 100.0% | 0.90 |
+
+**Verdict: all three Claude tiers clear the floor cleanly - a genuine
+result, same class as `code_gen`'s 17-case re-sweep, not the original
+8-case ceiling-effect noise.** Every case here (baseline and adversarial)
+was individually confirmed to fail a plausible-wrong refactor before being
+trusted (see "`refactor.jsonl` case design" above), so a 100% across tiers
+means Claude models actually handle duplicated-logic consolidation,
+magic-number extraction, dead-code removal, mutable-default-argument
+fixes, and (critically) the refactor-specific failure modes - resisting
+out-of-scope bug fixes (`rf-07`), verifying branches are truly identical
+before merging (`rf-08`), preserving a public interface (`rf-09`) - without
+tripping on any of them at any tier. Judge coherence stayed flat and
+healthy (0.87-0.90) too, unlike `summarization`'s tier-inverting spread -
+no evidence of a verbosity or hedging penalty on this task shape.
+
+**One real, deterministic case-design bug found and fixed** (not sample
+noise - confirmed by construction, not by a second sample): `rf-12`'s
+`max_occurrences` check for `\b20\b` was set to 1, but the source snippet's
+own pre-existing error message (`"subtotal below minimum of 20"`) already
+contains the literal number, unrelated to the duplicated-comparison smell
+the check targets - `max=1` was unsatisfiable by *any* refactor that kept
+that informative string, confirmed when a correct haiku consolidation
+(single named constant, message left intact) still failed. Raised to
+`max=2`; re-verified a no-op refactor (3 occurrences: two comparisons plus
+the string) still correctly fails.
+
+**A second bogus opus run was caught and discarded** - the same
+`judge call failed: nonzero exit` pattern as `code_review`'s opus run,
+starting partway through the case list (rule-based scoring unaffected,
+100% both times). Deleted and re-ran; this is now the second time in two
+suites the judge pass has failed mid-run with no retry - `claude_cli.py`
+has no retry/backoff (a documented rough edge), and two occurrences in one
+session is enough to flag as a real reliability gap worth a retry/backoff
+pass, not just a one-off fluke to keep manually re-running around.

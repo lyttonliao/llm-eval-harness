@@ -1,0 +1,208 @@
+{
+  "prompt_version": "refactor_v1",
+  "model": "sonnet",
+  "provider": "claude",
+  "total_cases": 12,
+  "check_accuracies": {
+    "tests_passed": 1.0,
+    "smells_removed": 1.0
+  },
+  "fully_correct_rate": 1.0,
+  "avg_judge_score": 0.8691666666666666,
+  "total_cost_usd": 1.74097,
+  "total_tokens": 0,
+  "results": [
+    {
+      "test_id": "rf-01",
+      "predicted": {
+        "reasoning": "Extracted the shared cart-summation loop into a single pass, then applied the member discount conditionally before rounding, removing the duplicated loop between branches.",
+        "code": "def compute_total(cart, is_member):\n    total = 0\n    for item in cart:\n        total += item.price * item.qty\n    if is_member:\n        total = total * 0.9\n    return round(total, 2)\n"
+      },
+      "checks": {
+        "tests_passed": true,
+        "smells_removed": true
+      },
+      "judge_score": 0.92,
+      "judge_rationale": "The reasoning accurately describes the specific refactoring strategy (extracting the duplicated loop, conditionally applying the member discount, preserving the rounding order) and the code implements it exactly as stated, with task-specific detail about what was deduplicated and how the conditional application preserves behavior.",
+      "cost_usd": 0.14313099999999998,
+      "duration_ms": 2615,
+      "token_usage": {}
+    },
+    {
+      "test_id": "rf-02",
+      "predicted": {
+        "reasoning": "Introduced a module-level BASE_SHIPPING_RATE constant to replace all four repeated 4.99 literals, keeping the same arithmetic and control flow so behavior is unchanged.",
+        "code": "BASE_SHIPPING_RATE = 4.99\n\n\ndef get_shipping_cost(weight_kg, is_express):\n    if weight_kg <= 1:\n        cost = BASE_SHIPPING_RATE\n    elif weight_kg <= 5:\n        cost = BASE_SHIPPING_RATE * 2\n    else:\n        cost = BASE_SHIPPING_RATE * 3\n    if is_express:\n        cost += BASE_SHIPPING_RATE\n    return round(cost, 2)\n"
+      },
+      "checks": {
+        "tests_passed": true,
+        "smells_removed": true
+      },
+      "judge_score": 0.88,
+      "judge_rationale": "The reasoning directly justifies the refactored code: it correctly identifies the specific repeated value (4.99), accurately counts all four occurrences to be extracted, explicitly invokes the task's no-behavior-change requirement, and verifies both arithmetic and control flow are preserved\u2014all grounded in the actual task details rather than generic principles.",
+      "cost_usd": 0.14558800000000002,
+      "duration_ms": 3567,
+      "token_usage": {}
+    },
+    {
+      "test_id": "rf-03",
+      "predicted": {
+        "reasoning": "Removed the unused 'unused' variable assignment and the unreachable 'if False' branch since neither affects the function's return value for any input.",
+        "code": "def classify(n):\n    if n < 0:\n        return \"negative\"\n    if n == 0:\n        return \"zero\"\n    return \"positive\"\n"
+      },
+      "checks": {
+        "tests_passed": true,
+        "smells_removed": true
+      },
+      "judge_score": 0.92,
+      "judge_rationale": "Reasoning is accurate and specific\u2014correctly identifies both the unused assignment and unreachable branch by name, accurately states they don't affect return values, and the refactored code preserves all behavior across all inputs (n < 0, n == 0, n > 0 paths all return identically).",
+      "cost_usd": 0.14248899999999998,
+      "duration_ms": 3050,
+      "token_usage": {}
+    },
+    {
+      "test_id": "rf-04",
+      "predicted": {
+        "reasoning": "Replaced the mutable default list with a None sentinel and initialize a new list inside the function body, so each call without an explicit cart starts fresh instead of sharing state across calls.",
+        "code": "def add_item(item, cart=None):\n    if cart is None:\n        cart = []\n    cart.append(item)\n    return cart\n"
+      },
+      "checks": {
+        "tests_passed": true,
+        "smells_removed": true
+      },
+      "judge_score": 0.9,
+      "judge_rationale": "The reasoning correctly identifies the specific anti-pattern (mutable default argument), names the exact refactoring technique (None sentinel pattern), and explains the mechanism grounded in the task's stated problem ('repeated calls don't share state'); the code implementation precisely matches the described approach with no gaps between reasoning and output.",
+      "cost_usd": 0.144614,
+      "duration_ms": 3911,
+      "token_usage": {}
+    },
+    {
+      "test_id": "rf-05",
+      "predicted": {
+        "reasoning": "Replaced explicit == True/== False comparisons with direct boolean expressions and simplified the if/else into a single boolean return.",
+        "code": "def is_eligible(is_active, is_banned):\n    return is_active and not is_banned\n"
+      },
+      "checks": {
+        "tests_passed": true,
+        "smells_removed": true
+      },
+      "judge_score": 0.93,
+      "judge_rationale": "The reasoning accurately identifies both transformations applied (replacing `== True`/`== False` comparisons with direct boolean expressions, and collapsing the if/else into a return statement), maps directly to the specific anti-patterns in the original code, and the refactored code preserves all four input combinations' behavior\u2014only slightly less detailed than it could be (e.g., could name the specific conversions like `is_active == True` \u2192 `is_active`), but coherent and well-grounded within the one-sentence constraint.",
+      "cost_usd": 0.142014,
+      "duration_ms": 4441,
+      "token_usage": {}
+    },
+    {
+      "test_id": "rf-06",
+      "predicted": {
+        "reasoning": "Extracted the shared positive-amount check into a private helper `_validate_positive_amount` and call it from both functions, preserving identical behavior and error messages.",
+        "code": "def _validate_positive_amount(amount):\n    if amount <= 0:\n        raise ValueError(\"amount must be positive\")\n\n\ndef charge_card(amount):\n    _validate_positive_amount(amount)\n    return amount\n\n\ndef refund_card(amount):\n    _validate_positive_amount(amount)\n    return -amount\n"
+      },
+      "checks": {
+        "tests_passed": true,
+        "smells_removed": true
+      },
+      "judge_score": 0.92,
+      "judge_rationale": "The reasoning is specific and grounded: it names the actual helper (`_validate_positive_amount`), identifies the exact duplication being removed (positive-amount check), specifies that both functions call it, and directly addresses the task's constraint (preserving behavior and error messages). The one-sentence summary accurately describes what the code does without generic filler.",
+      "cost_usd": 0.143744,
+      "duration_ms": 2643,
+      "token_usage": {}
+    },
+    {
+      "test_id": "rf-07",
+      "predicted": {
+        "reasoning": "Renamed `t` to `total` and `i` to `index` for clarity, preserving the exact same loop bounds and behavior (including the off-by-one exclusion of the last item).",
+        "code": "def total_price(items):\n    total = 0\n    for index in range(len(items) - 1):\n        total += items[index]\n    return total\n"
+      },
+      "checks": {
+        "tests_passed": true,
+        "smells_removed": true
+      },
+      "judge_score": 0.92,
+      "judge_rationale": "Reasoning is specific and grounded in concrete details: explicitly names the variable renames, identifies the exact loop bounds (`range(len(items) - 1)`), and calls out the specific behavioral preservation needed (the off-by-one exclusion), not generic boilerplate about refactoring; the implementation matches the stated reasoning exactly, and the reasoning correctly identifies the key constraint for this refactor task (preserving existing behavior including what could be an intentional pattern or bug, which the model correctly does not alter).",
+      "cost_usd": 0.142376,
+      "duration_ms": 3509,
+      "token_usage": {}
+    },
+    {
+      "test_id": "rf-08",
+      "predicted": {
+        "reasoning": "Merged the identical electronics/clothing branches into one condition using 'in' membership check, keeping the same tiered discount logic and else fallback unchanged.",
+        "code": "def compute_discounted(price, category):\n    if category in (\"electronics\", \"clothing\"):\n        if price > 100:\n            return round(price * 0.9, 2)\n        return round(price * 0.95, 2)\n    else:\n        return round(price * 0.95, 2)\n"
+      },
+      "checks": {
+        "tests_passed": true,
+        "smells_removed": true
+      },
+      "judge_score": 0.9,
+      "judge_rationale": "Reasoning directly identifies the specific refactoring technique (membership check with 'in'), explicitly grounds it in the task's named categories (electronics, clothing), and accurately describes both what was changed (merged branches) and what was preserved (tiered discount logic, else fallback), with the provided code correctly implementing the stated approach.",
+      "cost_usd": 0.14375200000000005,
+      "duration_ms": 2617,
+      "token_usage": {}
+    },
+    {
+      "test_id": "rf-09",
+      "predicted": {
+        "reasoning": "Replaced the O(n) linear scan helper with a direct dict.get() lookup, preserving get_value's name and None-default behavior while dropping the now-unnecessary helper function.",
+        "code": "def get_value(table, key):\n    return table.get(key)\n"
+      },
+      "checks": {
+        "tests_passed": true,
+        "smells_removed": true
+      },
+      "judge_score": 0.96,
+      "judge_rationale": "The reasoning is tightly grounded in specific task requirements: it names the actual performance problem (O(n) linear scan), identifies the concrete fix (dict.get()), and explicitly addresses all stated constraints (preserve public name, preserve None-default behavior, drop now-unnecessary helper). Each claim in the reasoning directly justifies a specific part of the refactored code; nothing is generic or unsupported.",
+      "cost_usd": 0.142261,
+      "duration_ms": 2350,
+      "token_usage": {}
+    },
+    {
+      "test_id": "rf-10",
+      "predicted": {
+        "reasoning": "Replaced the if/elif chain with a module-level dict mapping status codes to messages, using dict.get with a default value to preserve the fallback behavior for unrecognized codes.",
+        "code": "_STATUS_MESSAGES = {\n    200: \"OK\",\n    201: \"Created\",\n    404: \"Not Found\",\n    500: \"Internal Server Error\",\n}\n\n\ndef http_status_message(code):\n    return _STATUS_MESSAGES.get(code, \"Unknown Status\")\n"
+      },
+      "checks": {
+        "tests_passed": true,
+        "smells_removed": true
+      },
+      "judge_score": 0.9,
+      "judge_rationale": "The reasoning directly maps to the implementation\u2014the model correctly identified the three required changes (dict mapping, dict.get lookup, default parameter for fallback) and the code demonstrates all three exactly as described, with no disconnect between stated approach and actual execution.",
+      "cost_usd": 0.14382799999999998,
+      "duration_ms": 2903,
+      "token_usage": {}
+    },
+    {
+      "test_id": "rf-11",
+      "predicted": {
+        "reasoning": "Kept the same validation contract (raises ValueError on None or invalid values) while streamlining the normalization and check into a more compact form.",
+        "code": "def parse_priority(value):\n    if value is None:\n        raise ValueError(\"priority is required\")\n\n    normalized = str(value).strip().lower()\n    if normalized not in (\"low\", \"medium\", \"high\"):\n        raise ValueError(\"invalid priority: \" + str(value))\n\n    return normalized\n"
+      },
+      "checks": {
+        "tests_passed": true,
+        "smells_removed": true
+      },
+      "judge_score": 0.38,
+      "judge_rationale": "The reasoning correctly identifies that the validation contract is preserved, but mischaracterizes what was actually changed\u2014renaming `v` to `normalized` is a clarity improvement, not a 'streamlining' or 'more compact form' as claimed, since the implementation logic and line count remain identical to the original.",
+      "cost_usd": 0.14376599999999998,
+      "duration_ms": 3246,
+      "token_usage": {}
+    },
+    {
+      "test_id": "rf-12",
+      "predicted": {
+        "reasoning": "Extracted the magic number 20 into a MINIMUM_ORDER_THRESHOLD constant reused in both the guard clause and error message, and factored the common `subtotal + subtotal * 0.05` fee calculation out of the if/else branches so it's computed once, then applied the international-only adjustments (+15.00, -2.00) in the same order as before to preserve identical floating-point results; the redundant `subtotal >= 20` check was dropped since it's always true after the guard clause raises.",
+        "code": "MINIMUM_ORDER_THRESHOLD = 20\n\n\ndef calculate_invoice_total(subtotal, is_international):\n    if subtotal < MINIMUM_ORDER_THRESHOLD:\n        raise ValueError(f\"subtotal below minimum of {MINIMUM_ORDER_THRESHOLD}\")\n    total = subtotal + subtotal * 0.05\n    if is_international:\n        total = total + 15.00\n        total = total - 2.00\n    return round(total, 2)\n"
+      },
+      "checks": {
+        "tests_passed": true,
+        "smells_removed": true
+      },
+      "judge_score": 0.9,
+      "judge_rationale": "Reasoning accurately identifies and grounds each refactoring step (magic number extraction with named constant, moving duplicated fee calculation outside if/else, dropping redundant check due to guard clause guarantee) with specific code references; the claim about preserving calculation order and floating-point results is correct and shows careful attention to a subtle detail; no unsupported assertions detected.",
+      "cost_usd": 0.163407,
+      "duration_ms": 12061,
+      "token_usage": {}
+    }
+  ]
+}
