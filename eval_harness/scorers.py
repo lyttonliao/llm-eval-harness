@@ -305,34 +305,42 @@ def judge_score(case: TestCase, output: ModelOutput, judge_model: str = "haiku")
 
 
 def score_all(suite: str, cases: list[TestCase], outputs: list[ModelOutput], run_judge: bool = True) -> list[ScoredResult]:
+    """outputs_by_id groups by test_id rather than deduping to one-per-case,
+    so a caller that passed N ModelOutputs per case (see runner.run_suite's
+    `samples` param) gets N ScoredResults back - one case producing multiple
+    samples, not multiple cases silently overwriting each other. With
+    samples=1 (the default, every suite's normal path) this is exactly one
+    ScoredResult per case, unchanged from before."""
     rule_score = _RULE_SCORERS[suite]
-    outputs_by_id = {o.test_id: o for o in outputs}
+    outputs_by_id: dict[str, list[ModelOutput]] = {}
+    for o in outputs:
+        outputs_by_id.setdefault(o.test_id, []).append(o)
     results = []
 
-    for i, case in enumerate(cases, 1):
-        output = outputs_by_id.get(case.id)
-        if output is None:
-            continue
+    total = sum(len(outputs_by_id.get(c.id, [])) for c in cases)
+    done = 0
+    for case in cases:
+        for output in outputs_by_id.get(case.id, []):
+            done += 1
+            checks = rule_score(case, output)
 
-        checks = rule_score(case, output)
+            judge_val, judge_rationale = (0.0, "judging disabled")
+            if run_judge:
+                print(f"  judging [{done}/{total}] {case.id}...", end=" ", flush=True)
+                judge_val, judge_rationale = judge_score(case, output)
+                print(f"{judge_val:.2f}")
 
-        judge_val, judge_rationale = (0.0, "judging disabled")
-        if run_judge:
-            print(f"  judging [{i}/{len(cases)}] {case.id}...", end=" ", flush=True)
-            judge_val, judge_rationale = judge_score(case, output)
-            print(f"{judge_val:.2f}")
-
-        results.append(
-            ScoredResult(
-                test_id=case.id,
-                predicted=output.predicted,
-                checks=checks,
-                judge_score=judge_val,
-                judge_rationale=judge_rationale,
-                cost_usd=output.cost_usd,
-                duration_ms=output.duration_ms,
-                token_usage=output.token_usage,
+            results.append(
+                ScoredResult(
+                    test_id=case.id,
+                    predicted=output.predicted,
+                    checks=checks,
+                    judge_score=judge_val,
+                    judge_rationale=judge_rationale,
+                    cost_usd=output.cost_usd,
+                    duration_ms=output.duration_ms,
+                    token_usage=output.token_usage,
+                )
             )
-        )
 
     return results

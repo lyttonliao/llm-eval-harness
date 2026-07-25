@@ -107,6 +107,22 @@ def test_run_suite_calls_claude_once_per_case_never_hitting_real_cli():
     assert len(outputs) == 3
 
 
+def test_run_suite_samples_calls_model_n_times_per_case():
+    cases = _make_cases(2)
+    payload_text = '{"reasoning": "x", "severity": "low", "category": "frontend"}'
+    with patch("eval_harness.runner.load_cases", return_value=cases), patch(
+        "eval_harness.runner.load_prompt", return_value="sys prompt"
+    ), patch(
+        "eval_harness.runner.call_claude",
+        return_value=CliResult(text=payload_text, cost_usd=0.001, duration_ms=100),
+    ) as mock_call:
+        outputs = run_suite("bug_triage", "v1_naive", model="haiku", samples=3)
+
+    assert mock_call.call_count == 6  # 2 cases x 3 samples
+    assert len(outputs) == 6
+    assert sorted(o.test_id for o in outputs) == ["bt-01", "bt-01", "bt-01", "bt-02", "bt-02", "bt-02"]
+
+
 def test_run_suite_dispatches_to_codex_when_provider_is_codex():
     """Regression guard for the early-binding bug found in llm-task-router:
     provider dispatch must be resolved fresh inside run_suite, not via a

@@ -54,3 +54,4 @@ class RunSummary:
     total_tokens: int = 0
     results: list[ScoredResult] = field(default_factory=list)
     provider: str = "claude"
+    samples_per_case: int = 1  # >1 means `results` holds N ScoredResults per test_id, not one

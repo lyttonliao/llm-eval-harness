@@ -26,7 +26,16 @@ def load_prompt(version: str) -> str:
     return (PROMPTS_DIR / f"{version}.txt").read_text()
 
 
-def run_suite(suite: str, prompt_version: str, provider: str = "claude", model: str = "haiku") -> list[ModelOutput]:
+def run_suite(
+    suite: str, prompt_version: str, provider: str = "claude", model: str = "haiku", samples: int = 1
+) -> list[ModelOutput]:
+    """samples > 1 calls the model `samples` times per case instead of once,
+    appending all of them to the flat return list (same test_id repeated) -
+    see scorers.score_all, which groups by test_id rather than deduping, so
+    N outputs per case become N ScoredResults per case. Built for multi_step
+    (see CLAUDE.md's "Router tier calibration status" - single-sample
+    check_accuracies can't distinguish a real miss from that sample's
+    wording), not wired into any other suite yet."""
     cases = load_cases(suite)
     system_prompt = load_prompt(prompt_version)
     outputs = []
@@ -38,46 +47,50 @@ def run_suite(suite: str, prompt_version: str, provider: str = "claude", model: 
     call_model = call_claude if provider == "claude" else call_codex
 
     for i, case in enumerate(cases, 1):
-        print(f"  [{i}/{len(cases)}] {case.id}...", end=" ", flush=True)
-        result = call_model(system_prompt, case.input, model=model)
+        for sample in range(1, samples + 1):
+            label = f"  [{i}/{len(cases)}] {case.id}"
+            if samples > 1:
+                label += f" (sample {sample}/{samples})"
+            print(f"{label}...", end=" ", flush=True)
+            result = call_model(system_prompt, case.input, model=model)
 
-        if result.error:
-            print(f"ERROR: {result.error}")
-            outputs.append(
-                ModelOutput(
-                    test_id=case.id, raw_text=result.text, predicted={},
-                    cost_usd=result.cost_usd,
-                    duration_ms=result.duration_ms,
-                    token_usage=result.token_usage,
-                    parse_error=result.error,
+            if result.error:
+                print(f"ERROR: {result.error}")
+                outputs.append(
+                    ModelOutput(
+                        test_id=case.id, raw_text=result.text, predicted={},
+                        cost_usd=result.cost_usd,
+                        duration_ms=result.duration_ms,
+                        token_usage=result.token_usage,
+                        parse_error=result.error,
+                    )
                 )
-            )
-            continue
+                continue
 
-        try:
-            parsed = extract_json(result.text)
-            outputs.append(
-                ModelOutput(
-                    test_id=case.id,
-                    raw_text=result.text,
-                    predicted=parsed,
-                    cost_usd=result.cost_usd,
-                    duration_ms=result.duration_ms,
-                    token_usage=result.token_usage,
+            try:
+                parsed = extract_json(result.text)
+                outputs.append(
+                    ModelOutput(
+                        test_id=case.id,
+                        raw_text=result.text,
+                        predicted=parsed,
+                        cost_usd=result.cost_usd,
+                        duration_ms=result.duration_ms,
+                        token_usage=result.token_usage,
+                    )
                 )
-            )
-            token_count = result.token_usage.get("total_tokens")
-            token_label = f", {token_count} tokens" if token_count is not None else ""
-            print(f"${result.cost_usd:.4f}{token_label}")
-        except (json.JSONDecodeError, AttributeError) as e:
-            print(f"PARSE ERROR: {e}")
-            outputs.append(
-                ModelOutput(
-                    test_id=case.id, raw_text=result.text, predicted={},
-                    cost_usd=result.cost_usd, duration_ms=result.duration_ms,
-                    token_usage=result.token_usage,
-                    parse_error=str(e),
+                token_count = result.token_usage.get("total_tokens")
+                token_label = f", {token_count} tokens" if token_count is not None else ""
+                print(f"${result.cost_usd:.4f}{token_label}")
+            except (json.JSONDecodeError, AttributeError) as e:
+                print(f"PARSE ERROR: {e}")
+                outputs.append(
+                    ModelOutput(
+                        test_id=case.id, raw_text=result.text, predicted={},
+                        cost_usd=result.cost_usd, duration_ms=result.duration_ms,
+                        token_usage=result.token_usage,
+                        parse_error=str(e),
+                    )
                 )
-            )
 
     return outputs

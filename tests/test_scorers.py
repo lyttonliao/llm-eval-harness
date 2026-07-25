@@ -695,6 +695,21 @@ def test_score_all_run_judge_false_never_calls_claude():
     assert results[0].judge_rationale == "judging disabled"
 
 
+def test_score_all_groups_multiple_outputs_per_case_into_multiple_results():
+    """runner.run_suite's `samples` param produces N ModelOutputs sharing the
+    same test_id - score_all must return N ScoredResults for that case, not
+    dedupe down to one (the pre-N-sample behavior overwrote via a dict keyed
+    by test_id)."""
+    cases = [CASE]
+    outputs = [_output(cost_usd=0.001), _output(cost_usd=0.002), _output(cost_usd=0.003)]
+
+    results = score_all("bug_triage", cases, outputs, run_judge=False)
+
+    assert len(results) == 3
+    assert all(r.test_id == "bt-01" for r in results)
+    assert sorted(r.cost_usd for r in results) == [0.001, 0.002, 0.003]
+
+
 def test_score_all_run_judge_true_calls_claude_once_per_case():
     cases = [CASE]
     outputs = [_output()]
