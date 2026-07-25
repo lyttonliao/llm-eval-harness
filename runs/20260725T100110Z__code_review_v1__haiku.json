@@ -1,0 +1,377 @@
+{
+  "prompt_version": "code_review_v1",
+  "model": "haiku",
+  "provider": "claude",
+  "total_cases": 14,
+  "check_accuracies": {
+    "issues_flagged": 0.8571428571428571,
+    "severity_correct": 0.9285714285714286,
+    "no_false_positives": 0.9285714285714286
+  },
+  "fully_correct_rate": 0.7857142857142857,
+  "avg_judge_score": 0.8792857142857143,
+  "total_cost_usd": 0.1642132,
+  "total_tokens": 0,
+  "results": [
+    {
+      "test_id": "cr-01",
+      "predicted": {
+        "reasoning": "The snippet contains a classic off-by-one error that skips the last item in the list, producing an incorrect total.",
+        "findings": [
+          {
+            "issue": "Off-by-one error: `range(len(items) - 1)` skips the final item. For a list of n items, the loop only processes indices 0 through n-2, excluding index n-1. Single-item lists will incorrectly return 0 instead of that item's price.",
+            "severity": "bug"
+          }
+        ]
+      },
+      "checks": {
+        "issues_flagged": true,
+        "severity_correct": true,
+        "no_false_positives": true
+      },
+      "judge_score": 0.93,
+      "judge_rationale": "The reasoning correctly identifies the specific mechanism (`range(len(items) - 1)` \u2192 indices 0 through n-2), derives the concrete consequence (final item skipped), supports it with a specific example (single-item list), and the one-sentence summary accurately maps to the detailed finding with appropriate severity\u2014no gaps or unsupported claims.",
+      "cost_usd": 0.006266999999999999,
+      "duration_ms": 8960,
+      "token_usage": {}
+    },
+    {
+      "test_id": "cr-02",
+      "predicted": {
+        "reasoning": "Critical SQL injection vulnerability from unparameterized string interpolation; also uses SELECT * counter to stated engineering standards.",
+        "findings": [
+          {
+            "issue": "SQL injection vulnerability: username parameter is directly interpolated into the SQL query string using an f-string without parameterization. An attacker can inject arbitrary SQL (e.g., ' OR '1'='1, or '; DROP TABLE users; --) to manipulate the query, exfiltrate data, or corrupt the database.",
+            "severity": "security"
+          },
+          {
+            "issue": "Query uses SELECT * instead of an explicit column list, violating stated engineering standard (SQL: prefer explicit column lists over SELECT *).",
+            "severity": "style"
+          }
+        ]
+      },
+      "checks": {
+        "issues_flagged": true,
+        "severity_correct": true,
+        "no_false_positives": true
+      },
+      "judge_score": 0.9,
+      "judge_rationale": "Reasoning clearly maps to findings with appropriate severity levels; both the SQL injection and SELECT * issues are grounded in specific code details (f-string interpolation, wildcard query) and the stated project engineering standards, with concrete exploitation examples supporting the security classification.",
+      "cost_usd": 0.0073387,
+      "duration_ms": 12737,
+      "token_usage": {}
+    },
+    {
+      "test_id": "cr-03",
+      "predicted": {
+        "reasoning": "The function correctly implements the formula for time-remaining calculation, but fails to handle the edge case where the current time exceeds the expiry time, returning negative values instead of defining expected behavior (e.g., saturating at zero or raising).",
+        "findings": [
+          {
+            "issue": "Edge case: function returns negative values when `now > created_at + 86400` (after expiry), with no documented explanation or handling. Most 'time until X' functions either saturate at zero or explicitly handle expiry; a bare negative return from `seconds_until_expiry()` is likely unexpected by callers.",
+            "severity": "bug"
+          }
+        ]
+      },
+      "checks": {
+        "issues_flagged": false,
+        "severity_correct": false,
+        "no_false_positives": true
+      },
+      "judge_score": 0.78,
+      "judge_rationale": "The reasoning correctly identifies the specific mathematical edge case (86400 minus a larger-than-86400 value yields negative) and grounds it in the actual code formula, but treats the negative-return behavior as a bug based on assumed intended behavior (saturating at zero or raising) rather than what the code's signature and formula alone establish\u2014a defensible judgment about design patterns, but one that rests on an unstated assumption about caller contracts rather than explicit code evidence.",
+      "cost_usd": 0.009138799999999999,
+      "duration_ms": 15434,
+      "token_usage": {}
+    },
+    {
+      "test_id": "cr-04",
+      "predicted": {
+        "reasoning": "The snippet contains a classic mutable default argument bug where all calls without an explicit `tags` argument share the same list object, causing unintended state accumulation across calls.",
+        "findings": [
+          {
+            "issue": "Mutable default argument `tags=[]` is evaluated once at function definition, not per call. All invocations without an explicit tags argument will share and modify the same list, causing unexpected accumulation of tags across separate function calls (e.g., add_tag('a') then add_tag('b') returns ['a', 'b'] instead of ['b']).",
+            "severity": "bug"
+          }
+        ]
+      },
+      "checks": {
+        "issues_flagged": true,
+        "severity_correct": true,
+        "no_false_positives": true
+      },
+      "judge_score": 0.92,
+      "judge_rationale": "The reasoning is tightly grounded in the specific code pattern (mutable default `tags=[]`), correctly explains the mechanism (evaluated once at function definition, creating a shared object), identifies the concrete failure mode (state accumulation across calls), and includes a worked example showing the unintended behavior\u2014all of which directly justify the 'bug' severity classification.",
+      "cost_usd": 0.005906100000000001,
+      "duration_ms": 8523,
+      "token_usage": {}
+    },
+    {
+      "test_id": "cr-05",
+      "predicted": {
+        "reasoning": "The snippet has three real issues: a command-injection vulnerability from unescaped parameter interpolation, a silent-failure bug from ignoring the return value, and data loss from overwriting previous backups without tracking.",
+        "findings": [
+          {
+            "issue": "Command injection: `path` is interpolated directly into a shell command string without escaping, allowing arbitrary shell metacharacters or commands to be injected if `path` is untrusted or user-controlled.",
+            "severity": "security"
+          },
+          {
+            "issue": "Return value of `os.system()` is ignored, so if the tar command fails (e.g., permission denied, disk full, invalid path), the function silently succeeds from the caller's perspective.",
+            "severity": "bug"
+          },
+          {
+            "issue": "Multiple calls to `backup_dir()` overwrite `backup.tar.gz` without checking existence, silently losing the previous backup.",
+            "severity": "bug"
+          }
+        ]
+      },
+      "checks": {
+        "issues_flagged": true,
+        "severity_correct": true,
+        "no_false_positives": true
+      },
+      "judge_score": 0.87,
+      "judge_rationale": "The model's reasoning identifies three distinct, real issues present in the code\u2014unescaped f-string interpolation enabling command injection, unchecked os.system() return value enabling silent failure, and hardcoded backup filename causing data loss\u2014each grounded in specific code patterns and appropriately severity-tagged; the summary statement accurately maps to and justifies all three findings.",
+      "cost_usd": 0.0087266,
+      "duration_ms": 15195,
+      "token_usage": {}
+    },
+    {
+      "test_id": "cr-06",
+      "predicted": {
+        "reasoning": "The snippet is functionally correct for its stated purpose (summing item prices), but has clear PEP 8 naming convention violations.",
+        "findings": [
+          {
+            "issue": "Function name `calcTotalPrice` uses camelCase instead of snake_case; should be `calc_total_price`",
+            "severity": "style"
+          },
+          {
+            "issue": "Parameter name `itemList` uses camelCase instead of snake_case; should be `item_list`",
+            "severity": "style"
+          },
+          {
+            "issue": "Loop variable `Item` uses PascalCase instead of snake_case; should be `item`",
+            "severity": "style"
+          }
+        ]
+      },
+      "checks": {
+        "issues_flagged": true,
+        "severity_correct": true,
+        "no_false_positives": true
+      },
+      "judge_score": 0.9,
+      "judge_rationale": "The reasoning correctly identifies the actual issue in the code (PEP 8 naming violations) and grounds it in a specific, verifiable standard; the two-part claim (functionally correct + style violations) is internally consistent and directly supported by the three findings, each of which maps back to the stated convention problem.",
+      "cost_usd": 0.0088059,
+      "duration_ms": 15361,
+      "token_usage": {}
+    },
+    {
+      "test_id": "cr-07",
+      "predicted": {
+        "reasoning": "The snippet has two serious security vulnerabilities: SQL injection via direct string interpolation of untrusted input, and plaintext logging of a payment card number in violation of PCI-DSS requirements.",
+        "findings": [
+          {
+            "issue": "SQL injection vulnerability: both `card_number` and `amount` are interpolated directly into the query string without parameterization. An attacker can inject arbitrary SQL by crafting a malicious card number (e.g., `'); DROP TABLE charges; --`) or amount value. Use parameterized queries with placeholders instead (e.g., `conn.execute(\"INSERT INTO charges (card, amount) VALUES (?, ?)\", (card_number, amount))`).",
+            "severity": "security"
+          },
+          {
+            "issue": "Card number logged in plaintext: the `print()` statement outputs the full card number to stdout/logs. Payment card numbers must never be logged in plaintext \u2014 this violates PCI-DSS compliance requirements and exposes sensitive data. Remove the card number from the log message, or if audit logging is needed, log only a masked form (e.g., last 4 digits).",
+            "severity": "security"
+          }
+        ]
+      },
+      "checks": {
+        "issues_flagged": true,
+        "severity_correct": true,
+        "no_false_positives": true
+      },
+      "judge_score": 0.88,
+      "judge_rationale": "Reasoning correctly identifies two specific, observable vulnerabilities grounded in the actual code (f-string interpolation of untrusted variables in a SQL query, plaintext card-number in a print statement), and the two-finding answer with severity tags and concrete remediation directly flows from that reasoning without contradiction or unsupported claims.",
+      "cost_usd": 0.0115845,
+      "duration_ms": 21224,
+      "token_usage": {}
+    },
+    {
+      "test_id": "cr-08",
+      "predicted": {
+        "reasoning": "The function catches json.JSONDecodeError but not TypeError. If raw is None (which could occur if the file is absent and the caller passes None as a sentinel), json.loads(None) raises TypeError, causing an uncaught exception instead of the documented behavior of returning {}.",
+        "findings": [
+          {
+            "issue": "Incomplete exception handling: TypeError not caught when raw is None or a non-string type. The comment documents that 'config file is allowed to be absent/empty on first run' and should return {}, but if a caller passes None to signal file absence, json.loads(None) raises TypeError instead of returning {}. The function should either catch TypeError or clarify that the caller is responsible for ensuring raw is a valid string-like type before passing it.",
+            "severity": "bug"
+          }
+        ]
+      },
+      "checks": {
+        "issues_flagged": true,
+        "severity_correct": true,
+        "no_false_positives": true
+      },
+      "judge_score": 0.7,
+      "judge_rationale": "The reasoning correctly identifies that json.loads(None) raises TypeError (not JSONDecodeError) and connects this to the comment's statement that absent configs should return {}; however, it assumes the caller passes None as a sentinel without evidence from the task details\u2014the comment says the file 'is allowed to be absent' but never specifies how the caller signals absence (empty string vs. None vs. some other mechanism), making the TypeError scenario a plausible but ungrounded assumption rather than a grounded specific concern.",
+      "cost_usd": 0.0169967,
+      "duration_ms": 33647,
+      "token_usage": {}
+    },
+    {
+      "test_id": "cr-09",
+      "predicted": {
+        "reasoning": "The snippet has incomplete exception handling: it catches KeyError (tier missing from table) but allows AttributeError to propagate if user is None or lacks a tier attribute, making the defensive coding asymmetric.",
+        "findings": [
+          {
+            "issue": "Incomplete exception handling. The try/except catches only KeyError when looking up user.tier in DISCOUNT_TABLE, but does not catch AttributeError that would occur if user is None or doesn't have a tier attribute. This creates inconsistent defensive behavior\u2014the function gracefully handles one type of missing data (unknown tier value) while crashing on another (missing user object or attribute). Either add an explicit None check before accessing user.tier, broaden the except clause to handle AttributeError, or add a comment documenting the assumption that user is always a valid object.",
+            "severity": "bug"
+          }
+        ]
+      },
+      "checks": {
+        "issues_flagged": true,
+        "severity_correct": true,
+        "no_false_positives": true
+      },
+      "judge_score": 0.88,
+      "judge_rationale": "The reasoning accurately traces execution flow: correctly identifies that KeyError from dictionary lookup is caught while AttributeError from accessing user.tier (if user is None or lacks that attribute) propagates uncaught, and specifically grounds the asymmetry claim in these two distinct error paths. The detailed finding directly expands on this one-sentence reasoning without overgeneralizing.",
+      "cost_usd": 0.013374299999999999,
+      "duration_ms": 26474,
+      "token_usage": {}
+    },
+    {
+      "test_id": "cr-10",
+      "predicted": {
+        "reasoning": "The snippet has one critical resource leak: the file is opened but never closed, relying on garbage collection for cleanup which is unreliable and can exhaust file descriptors in production code.",
+        "findings": [
+          {
+            "issue": "Resource leak: file is opened but never explicitly closed. Should use a context manager (with statement) or call f.close() to ensure the file handle is released immediately, rather than relying on garbage collection.",
+            "severity": "bug"
+          }
+        ]
+      },
+      "checks": {
+        "issues_flagged": true,
+        "severity_correct": true,
+        "no_false_positives": true
+      },
+      "judge_score": 0.9,
+      "judge_rationale": "The reasoning is tightly grounded in the specific code details (file opened with `open()`, never closed, implicit GC cleanup) and justifies the severity claim with a concrete production consequence (file descriptor exhaustion), making it coherent and well-supported rather than generic.",
+      "cost_usd": 0.0126588,
+      "duration_ms": 24887,
+      "token_usage": {}
+    },
+    {
+      "test_id": "cr-11",
+      "predicted": {
+        "reasoning": "The snippet has a critical concurrency bug and lacks defensive access to dictionary keys that aren't guaranteed to exist.",
+        "findings": [
+          {
+            "issue": "Race condition: the check-then-act pattern (testing `available` and then setting it) is not atomic. Two concurrent threads could both see the seat as available and both reserve it, corrupting the reservation state. In any multi-threaded seat reservation system, this is a logic defect that produces wrong results.",
+            "severity": "bug"
+          },
+          {
+            "issue": "Undefended dictionary access: the code assumes `seats[seat_id]` is a dict with an `\"available\"` key. If a seat entry is malformed or missing that key, this will raise `KeyError`. Should use `.get(\"available\")` or validate the data structure, especially since the code doesn't document this contract.",
+            "severity": "bug"
+          }
+        ]
+      },
+      "checks": {
+        "issues_flagged": true,
+        "severity_correct": true,
+        "no_false_positives": true
+      },
+      "judge_score": 0.9,
+      "judge_rationale": "The reasoning directly justifies both findings: 'critical concurrency bug' specifically supports the race condition finding (correctly names the check-then-act atomicity gap), and 'lacks defensive access to dictionary keys that aren't guaranteed to exist' specifically supports the KeyError finding\u2014both grounded in actual code patterns rather than generic language.",
+      "cost_usd": 0.0223408,
+      "duration_ms": 44154,
+      "token_usage": {}
+    },
+    {
+      "test_id": "cr-12",
+      "predicted": {
+        "reasoning": "The snippet has three real defects: a hardcoded API key exposed in source, an undefined `requests` name that causes a runtime error, and a missing timeout on the network call that allows indefinite blocking.",
+        "findings": [
+          {
+            "issue": "Hardcoded API key `sk_live_51H8x9K2eZvKYlo2C` in source code. This is a credential in plain text; if the repository is ever exposed (public repo, accidental commit, or breach of repo access), the key is compromised. Credentials should be loaded from environment variables or a secrets manager.",
+            "severity": "security"
+          },
+          {
+            "issue": "Undefined name `requests` \u2014 the module is used but not imported. This will raise `NameError: name 'requests' is not defined` when the function is called.",
+            "severity": "bug"
+          },
+          {
+            "issue": "Missing timeout parameter on `requests.post()`. Without a timeout, the call can hang indefinitely if the remote service is unresponsive or the network hangs, blocking the caller. Standard practice is to pass `timeout=<seconds>`.",
+            "severity": "bug"
+          }
+        ]
+      },
+      "checks": {
+        "issues_flagged": true,
+        "severity_correct": true,
+        "no_false_positives": true
+      },
+      "judge_score": 0.95,
+      "judge_rationale": "The reasoning identifies three specific, verifiable defects grounded directly in the code snippet (hardcoded key literal, undefined `requests` name, missing `timeout` parameter), each with accurate severity classification, and the findings answer matches the reasoning exactly with no disconnect or unsupported claims.",
+      "cost_usd": 0.0174995,
+      "duration_ms": 35555,
+      "token_usage": {}
+    },
+    {
+      "test_id": "cr-13",
+      "predicted": {
+        "reasoning": "The implementation has two genuine logic defects: negative inputs silently return 1 (mathematically incorrect, since factorial is undefined for negative integers), and large inputs will crash with RecursionError, causing unexpected resource exhaustion.",
+        "findings": [
+          {
+            "issue": "No input validation for negative numbers. factorial(-5) returns 1, but factorial is mathematically undefined for negative integers. The base case `n <= 1` treats all negative inputs as valid when they should raise an error.",
+            "severity": "bug"
+          },
+          {
+            "issue": "Unbounded recursion will exceed Python's stack limit on large inputs (typically n > 1000), causing RecursionError. No guard against recursion depth or iterative fallback.",
+            "severity": "bug"
+          }
+        ]
+      },
+      "checks": {
+        "issues_flagged": true,
+        "severity_correct": true,
+        "no_false_positives": false
+      },
+      "judge_score": 0.9,
+      "judge_rationale": "The reasoning correctly identifies and explains two genuine defects with specific grounding: it directly references the `n <= 1` base case as the source of silent-return behavior on negative inputs (mathematically incorrect), and correctly invokes Python's stack-depth limit as the cause of large-input crashes, with both defects properly mapped to the code path that causes them.",
+      "cost_usd": 0.007224899999999999,
+      "duration_ms": 13570,
+      "token_usage": {}
+    },
+    {
+      "test_id": "cr-14",
+      "predicted": {
+        "reasoning": "This authentication function has multiple critical security vulnerabilities (SQL injection, plaintext password handling), a resource leak, and a style issue.",
+        "findings": [
+          {
+            "issue": "SQL injection via string concatenation: the query is built by concatenating unsanitized user input directly into the SQL string. An attacker can inject SQL commands like `' OR '1'='1` as the username or password to bypass authentication.",
+            "severity": "security"
+          },
+          {
+            "issue": "Plaintext password authentication: the code performs a direct string comparison of user input against a database password field without hashing. Passwords must be hashed (bcrypt, scrypt, argon2) and compared using a timing-safe comparison function, never stored or compared plaintext.",
+            "severity": "security"
+          },
+          {
+            "issue": "Database connection resource leak: the connection returned by `get_connection()` is never closed. Repeated calls will exhaust available database connections over time.",
+            "severity": "bug"
+          },
+          {
+            "issue": "SELECT * usage: explicitly specify required columns instead of using SELECT * to reduce schema exposure and query overhead.",
+            "severity": "style"
+          }
+        ]
+      },
+      "checks": {
+        "issues_flagged": false,
+        "severity_correct": true,
+        "no_false_positives": true
+      },
+      "judge_score": 0.9,
+      "judge_rationale": "The one-sentence reasoning directly maps to all four findings with accurate severity ordering (security vulnerabilities first, then resource bug, then style), and each claim is grounded in specific code details (string concatenation for injection, plaintext comparison, unclosed connection, SELECT *) rather than generic statements about authentication problems.",
+      "cost_usd": 0.0163506,
+      "duration_ms": 32078,
+      "token_usage": {}
+    }
+  ]
+}

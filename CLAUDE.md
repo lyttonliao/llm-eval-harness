@@ -377,3 +377,81 @@ real prompt-following gap, not necessarily a capability gap.
 **Codex leg not run** - same account-wide Codex CLI quota lockout as the
 `code_gen` 17-case re-sweep (blocked until 2026-08-22, see above). Don't
 attempt it before then.
+
+## Router tier calibration status (`code_review` / `code_review_v1`, as of 2026-07-25)
+
+First judged benchmark for `code_review` (14 cases), Claude tiers only. Codex
+leg skipped for the same account-wide quota lockout as `code_gen`/
+`summarization` above (blocked until 2026-08-22).
+
+| provider | model | issues flagged | severity correct | no false positives | fully correct | judge coherence |
+|---|---|---|---|---|---|---|
+| claude | haiku (cheap) | 85.7% | 92.9% | 92.9% | 78.6% | 0.88 |
+| claude | sonnet (mid) | 92.9% | 85.7% | 92.9% | 78.6% | 0.70 |
+| claude | opus (flagship) | 100.0% | 100.0% | 100.0% | 100.0% | 0.85 |
+
+**Verdict: opus clearly clears the floor; sonnet does not earn its cost
+premium over haiku on this suite.** haiku and sonnet tie exactly on
+fully-correct (78.6%, 11/14) but miss different cases and sonnet's judge
+coherence is markedly worse (0.70 vs. haiku's 0.88) - same accuracy, weaker
+stated reasoning, higher cost. Only opus reaches a clean 100%. **Don't add
+a mid-tier=sonnet assumption for code_review off this table without
+re-checking** - this is one sample per tier (see caveat below), and
+`llm-task-router/tiers.py`'s `TIER_MODELS` isn't suite-specific, so this
+data point argues against sonnet's mid-tier placement holding uniformly
+across suites, not for changing `tiers.py` outright.
+
+**Real case-design bugs found and fixed during this run** (same paraphrase-
+fragility class documented throughout this file - `sum-05`/`sum-08`,
+`ar-05`/`ar-09`):
+- `cr-03`: bare `"86400"` in `must_flag` cross-matched an unrelated finding
+  that happened to also cite the literal value while describing a different
+  (real) bug - narrowed to `"magic number"`/`"named constant"`/`"unexplained
+  constant"`.
+- `cr-05`: bare `"os.system"` cross-matched an unrelated finding about the
+  same function call's ignored return value - dropped, kept the more
+  specific injection-phrase group.
+- `cr-07`, `cr-14`: both had a real miss where a model correctly identified
+  the planted issue (card number logged in cleartext; password compared
+  unhashed) in wording no phrase in the group covered (`"printed in
+  cleartext"` vs. `"card number is logged"`; `"compared in cleartext...
+  raw equality"` vs. `"not hashed"`) - both groups widened. Confirmed by
+  local re-scoring of the saved run (no new model calls) that widening
+  didn't flip any other case's result before trusting it.
+
+**Known caveat, deliberately not chased further: this suite showed the same
+single-sample instability `multi_step` surfaced first.** A second haiku
+sample (after the `cr-03`/`cr-05` fix) produced an entirely different miss
+pattern (`cr-03` missed for a genuinely different reason; `cr-14` missed a
+group the first sample had caught), and `cr-13`'s "clean case, don't
+false-positive on bounded recursion" check was tripped by a haiku finding
+that's arguably a legitimate practical point (`RecursionError` on deep
+input) rather than the "claims infinite recursion" false-positive the case
+was built to catch. Sonnet separately missed `cr-01`, `cr-08`, `cr-09` -
+`cr-01` and `cr-08` look like they could be the same phrase-collision class
+as the fixed cases, but with only one sample each, patching now would be
+sample-chasing, not a confirmed fix. **Decision made explicitly (2026-07-25,
+matching the `multi_step` discussion): don't patch cases on n=1 evidence
+going forward** - only `cr-03`/`cr-05`/`cr-07`/`cr-14` were fixed because
+the collision mechanism was directly confirmed (the colliding phrase
+literally appears in a separate, unrelated finding's text, a structural
+bug independent of which sample surfaced it), not because a single sample
+missed. `cr-01`, `cr-08`, `cr-09` (the one exception - see below), `cr-13`
+stay open. Treat every `check_accuracies` number in this table as N=1 per
+model - a real confidence interval needs the N-sample scoring mechanism
+this suite (and `multi_step`) are both waiting on, not yet built.
+
+One caveat resolved rather than left open: `cr-09` (the no-justification
+silent-failure case) failed identically on **both** haiku and sonnet, for
+the same reason both times (neither model flagged the silent
+default-return) - reproducing across two different models is real signal,
+not phrase noise, so this one is trusted as a genuine finding: both cheap
+and mid tiers miss this specific silent-failure pattern on this suite.
+
+**A bogus run was caught and discarded, not trusted:** the first opus run's
+judge pass failed with "nonzero exit" starting at `cr-03` (rule-based
+scoring was unaffected and already showed 100%), producing `avg_judge_score
+0.13` - the exact bogus-run shape this file already warns about elsewhere
+(looks like a real bad score if you don't check the error text). Deleted
+and re-ran rather than trusted; the re-run's `avg_judge_score` (0.85) is
+what's in the table above.
