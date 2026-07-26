@@ -675,3 +675,112 @@ misleading number. The revision itself should follow the same discipline
 `code_gen`/`summarization`/every suite's case-design section describes:
 widen each group against real model output, confirm a plausible-wrong
 plan still fails after widening, don't just guess broader phrasing.
+
+## `multi_step.jsonl` phrase-group revision (2026-07-26) - the deferred fix from above, done against real N=5 output
+
+Went case-by-case through the saved `runs/20260725T225357Z__multi_step_v1__haiku.json`
+(the N=5 run above) rather than guessing broader phrasing, per that run's own
+recommendation. Two design questions got resolved before touching any case file:
+
+**Embeddings-based semantic matching was evaluated and rejected, empirically, before
+being built.** The instinct going in was that a local embedding model (no API billing,
+so it wouldn't break the "no separate billing" rationale - see "Why it's built this
+way") could replace brittle substring matching entirely. Tested directly against real
+phrase pairs from this suite's own N=5 failures (`fastembed`, `BAAI/bge-small-en-v1.5`
+and `bge-base-en-v1.5`, cosine similarity, no training involved - a vector database
+was never the right frame either, since there are only a handful of phrases per group
+to compare, not a corpus to index): word-form variance (`"writes to status_id only"`
+vs `"write to status_id only"`) scored 0.91-0.95, a huge safe margin. But the actual
+motivating problem - concrete implementation nouns vs. abstract requirement phrasing
+(`"SQS"` vs `"durable queue"`, `"s-maxage=60"` vs `"short TTL"`, percentage ramps vs.
+`"staged rollout"`) - scored 0.54-0.60, and a same-case phrase that must NOT match
+(`"rollback"` vs. an unrelated group's `"deploy a shared template"`) scored 0.515,
+barely below the true positives. No single threshold safely separates real synonyms
+from same-case noise on the exact problem embeddings were brought in to solve, and a
+bigger model didn't meaningfully improve the separation. **Decision: don't add the
+dependency.** This is the same "validate before trusting" discipline every case-design
+section in this file already follows, just applied to a scoring-mechanism choice
+before writing code, not to a phrase group after writing it.
+
+**Regex support was added to `rule_based_score_multi_step` instead** (`scorers.py`) -
+a group's `required_steps` entry may now carry an optional `"patterns"` list (regexes,
+`re.search`, case-insensitive) alongside `"phrases"`. This covers phrasing that's
+genuinely regular in shape (numeric ramps, "verb + separator + noun" combinations
+across underscore/hyphen/space) but too combinatorial to enumerate as a flat substring
+list - a middle ground between plain substrings and the rejected embeddings approach.
+Covered by two new tests in `test_scorers.py`.
+
+**Result of the revision pass, re-scored against the same saved N=5 outputs (no new
+model calls - `rule_based_score_multi_step` recomputed directly over the existing
+run's saved `predicted` dicts):**
+
+| check | before | after |
+|---|---|---|
+| step_coverage | 18/60 (30%) | 39/60 (65%) |
+| ordering_correct | 29/60 (48%) | 31/60 (52%) |
+| no_false_positives | 60/60 (100%) | 60/60 (100%) |
+
+Per-case fully-correct: `ms-04` 0→2/5, `ms-05` 0→1/5, `ms-06` 2→4/5, `ms-09` 0→2/5,
+`ms-11` 0→3/5 (the `ms-11` fix alone closed a 5/5 miss - see below). `ms-01`, `ms-02`
+(still the timeout case), `ms-03`, `ms-08` stayed at 0/5 - see "left unfixed" below.
+
+**The single highest-value fix: `ms-11`'s `required_steps[2]` missed on all 5 samples
+for the same reason every time** - the phrase group literally required the compound
+wording `"implement and validate access-control"`, which no natural single-step plan
+writes (every real sample split implementation and validation into two separate
+steps, as any reasonable plan would). Widened to phrase stems `"access control polic"`
+/ `"access-control polic"` (catches policy/policies, hyphen or space) - this one change
+alone fixed 3 of 5 samples outright.
+
+**Two fixes caused real regressions on the first pass, both self-inflicted phrase
+collisions, not model errors - caught by re-scoring the full N=5 set rather than
+trusting the first attempt:**
+- `ms-04`'s widened `"both frontend and backend"` (meant to catch a final
+  stability-confirmation step) also matched an early negotiation step ("present audit
+  findings **to** both frontend and backend teams"), pulling that group's matched
+  index earlier than the actual migrate step and flipping `ordering_correct` from a
+  vacuous true to a false. Narrowed to `"for both frontend and backend"` (the actual
+  preposition the intended step uses) - fixed without losing the intended match.
+- `ms-12`'s widened `"existing pipelines"` collided the same way with a step that
+  merely referenced the future template in passing. Narrowed to the fuller, more
+  specific `"of both existing pipelines"` - resolved.
+
+**One exposed-but-not-introduced ordering collision left open, same class as the
+`ms-04` "shared template" lesson from the prior session:** in `ms-12` sample 0, group1
+(`"shared template"`) already matched inside group0's own audit step (which happens to
+say "...that **the shared template** must support" as a forward reference) - this was
+already true before any edit this session, just invisible because group0 never
+matched at all, so the `[0,1]` ordering constraint was never evaluated. Fixing group0
+(above) made the constraint evaluable, exposing this pre-existing group1 ambiguity as
+a `ordering_correct` regression on that one sample. The plan's real step order is
+correct (audit at index 0, design at index 1); the false negative is a phrase-matching
+artifact in group1, not a group0 problem, and not something this pass's group0 fix
+should be reverted over. Left open rather than chased further, same reasoning as
+`cr-13`/`ar-07` staying open elsewhere in this file - would need reworking how
+`first_match_index` prefers a step's "primary" content over an incidental mention,
+which is out of scope for a phrase-list revision pass.
+
+**Deliberately left unfixed, and why:**
+- `ms-01` group0 (`dual write`), sample 0: the plan does a one-time `UPDATE` backfill
+  *before* deploying app code that writes the new column - a real gap (any write
+  between backfill and deploy goes unreflected), not a phrasing miss.
+- `ms-03` group1 (`shadow`), sample 2: no shadow/dual-processing step exists in the
+  plan at all before real traffic - a real gap, not a phrasing miss.
+- `ms-03` group2 (`staged rollout`, percentage phrasing, 4/5 miss): attempted a numeric
+  regex fix, rejected on inspection - this case's own `shadow` step independently
+  mentions "100% of transactions" in an unrelated sense (routing to shadow execution,
+  not the staged-traffic ramp), so a bare percentage pattern risks matching the wrong
+  step and colliding with group1's own index. Left as an open scorer gap, same
+  concrete-vs-abstract class as the rejected embeddings approach above - not safely
+  fixable with regex either, unlike `ms-04`'s/`ms-12`'s verb-based gaps.
+- `ms-09` group3 (`cutover`), single miss (1/5): real cause identified (`"Migrate
+  remaining read traffic"` vs. `"cut over reads"`) but only one sample affected -
+  left per the established "don't patch on n=1 evidence" rule (same discipline as
+  `code_review`'s `cr-01`/`cr-08`/`cr-13` staying open - only `ms-11`-style 4-5/5
+  patterns and directly-confirmed causes were fixed this pass).
+
+**Not re-run against the model yet.** Every number above comes from re-scoring the
+existing saved run's `predicted` dicts - zero new `claude -p` calls, zero new cost.
+A fresh N-sample run (to see whether `haiku`'s *actual* fully-correct rate moves, not
+just the re-scored one) is the natural next step before trusting this suite's numbers
+for a tier decision, but wasn't done in this session.
