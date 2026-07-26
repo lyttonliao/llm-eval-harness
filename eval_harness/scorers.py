@@ -176,17 +176,31 @@ def rule_based_score_multi_step(case: TestCase, output: ModelOutput) -> dict[str
     steps needed to have an order at all. Cases with no ordering_constraints (pure
     coverage/false-positive cases) get a vacuous pass, same precedent as
     refactor/summarization's always-present, sometimes-empty checks.
+
+    A group may optionally carry a "patterns" list (regexes, matched case-insensitively
+    via re.search) alongside "phrases" - added specifically for numeric/percentage-ramp
+    phrasing ("switch 5-10% of traffic", "expand to 50%...then 100%") that no fixed
+    substring list can enumerate. This does NOT cover the harder concrete-vs-abstract
+    vocabulary gap (a model naming "SQS" where the group expects "durable queue") - that
+    class was tested against real embedding similarity (see conversation/commit history)
+    and rejected: true synonyms and same-case false positives landed too close together
+    (0.51-0.60 cosine similarity) to set a safe threshold. That gap is left to judge_score,
+    not step_coverage, same conclusion architecture's key_considerations_addressed reached.
     """
     steps = [s for s in (output.predicted.get("steps") or []) if isinstance(s, dict)]
     texts = [f"{s.get('phase') or ''} {s.get('detail') or ''}".lower() for s in steps]
 
-    def first_match_index(phrases: list[str]) -> int | None:
+    def first_match_index(group: dict) -> int | None:
+        phrases = group["phrases"]
+        patterns = [re.compile(p, re.IGNORECASE) for p in group.get("patterns", [])]
         for i, text in enumerate(texts):
             if any(phrase.lower() in text for phrase in phrases):
                 return i
+            if any(pattern.search(text) for pattern in patterns):
+                return i
         return None
 
-    group_indices = [first_match_index(group["phrases"]) for group in case.expected["required_steps"]]
+    group_indices = [first_match_index(group) for group in case.expected["required_steps"]]
     step_coverage = all(idx is not None for idx in group_indices)
 
     constraint_results = []

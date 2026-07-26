@@ -481,6 +481,44 @@ def test_rule_based_score_multi_step_matches_case_insensitively():
     assert checks == {"step_coverage": True, "ordering_correct": True, "no_false_positives": True}
 
 
+def test_rule_based_score_multi_step_matches_via_regex_pattern():
+    # a group's optional "patterns" list matches paraphrasing no fixed substring list
+    # can enumerate (e.g. numeric percentage ramps) - added after the N=5 multi_step
+    # validation run showed plain substrings couldn't cover this class of phrasing.
+    case = TestCase(
+        id="ms-98", input="x",
+        expected={
+            "required_steps": [
+                {"phrases": ["backfill"]},
+                {"phrases": [], "patterns": [r"\d{1,3}%.{0,20}traffic"]},
+            ],
+            "ordering_constraints": [[0, 1]],
+            "must_not_include": [],
+        },
+    )
+    output = _multi_step_output([
+        {"phase": "backfill", "detail": "backfill historical data"},
+        {"phase": "ramp", "detail": "shift 25% of traffic to the new provider"},
+    ])
+    checks = rule_based_score_multi_step(case, output)
+    assert checks["step_coverage"] is True
+    assert checks["ordering_correct"] is True
+
+
+def test_rule_based_score_multi_step_pattern_miss_still_fails_coverage():
+    case = TestCase(
+        id="ms-98", input="x",
+        expected={
+            "required_steps": [{"phrases": [], "patterns": [r"\d{1,3}%.{0,20}traffic"]}],
+            "ordering_constraints": [],
+            "must_not_include": [],
+        },
+    )
+    output = _multi_step_output([{"phase": "ramp", "detail": "increase traffic gradually"}])
+    checks = rule_based_score_multi_step(case, output)
+    assert checks["step_coverage"] is False
+
+
 # --- rule_based_score_architecture ------------------------------------------
 
 ARCHITECTURE_CASE = TestCase(
