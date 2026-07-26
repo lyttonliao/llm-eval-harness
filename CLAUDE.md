@@ -840,3 +840,196 @@ scorer phrase-strictness on a substantively correct plan, not planning quality i
 - the revision closed part of that gap but, per the analysis above, real generalization
 is smaller than hoped and the suite likely still needs the broader phrase-group rewrite
 this file has deferred twice now rather than another narrow patching pass.
+
+## `multi_step` targeted fix pass on the four 0/5 cases, done offline against both saved N=5 runs (2026-07-26)
+
+Went case-by-case through `ms-01`, `ms-04`, `ms-08`, `ms-10` (the four cases the fresh
+N=5 run above left at 0/5 and explicitly flagged as not-yet-inspected, except `ms-04`
+whose cause was already confirmed) - all analysis and validation done by directly
+re-scoring the 120 real `predicted` dicts already sitting in the two saved run files
+(`20260725T225357Z` pre-revision + `20260726T212852Z` post-revision), zero new
+`claude -p` calls. Two additional cases (`ms-02`, `ms-12`) turned up real, multi-sample-confirmed
+phrase bugs of the exact same class while inspecting the ones above and got fixed too,
+per this file's existing "fix when the mechanism is directly confirmed across multiple
+samples, not on n=1" rule; `ms-03`'s equally-low scores were inspected and are
+deliberately left alone - see below.
+
+**`ms-04`'s confirmed final-confirmation gap (`required_steps[3]`) turned out to be two
+separate bugs, not one.** Direct inspection of all 10 samples (not just the 3 the prior
+session flagged) showed the bare `"confirm both teams"` phrase was actively harmful, not
+just under-matching: it's a substring of unrelated design/staging-approval gates
+("**Confirm both teams** approve the design before proceeding to implementation.",
+"**Confirm both teams** have access and understand how to trigger validation runs.") that
+say nothing about deploys ever going well. Because `first_match_index` returns the first
+hit, this false-matched an early step and corrupted `ordering_correct` for samples where
+it fired (group 3 landing before group 2 broke the `[2,3]` constraint) - `ms-04`'s R2
+`ordering_correct` was 1/5 before this fix, masked by `confirm both teams` "passing"
+`step_coverage` on the wrong step. Fixed by removing the bare phrase and replacing it
+with a same-sentence-scoped regex, `both (teams|repos)[^.]{0,100}(stably|stable|
+stability|successfully|validated|regress|incident|working)` - restricting the keyword
+search to not cross a period is what lets it catch "both teams **complete** at least one
+full release cycle with no pipeline-induced failures, **regress**ions" and "**Both
+teams** have now independently **validated** the template under real-world load" while
+correctly excluding both false positives above (neither has a matching keyword before
+its own sentence ends). Two dead ends worth recording: a first attempt used a flat
+40-char proximity window instead of same-sentence scoping and was too narrow (missed the
+genuine "regressions" match, which sits ~70 chars after "both teams"); a second attempt
+included bare `"deploy"` as a keyword and immediately regressed a different, previously-passing
+sample, because an early staging step says "run both teams' test suites and full
+**deploy**ment workflows against the shared template" - "deploy" alone doesn't distinguish
+"we deployed for a test" from "both teams deployed successfully in production."
+`required_steps[2]` (migrate one team, then the other) also needed broadening - real
+phrasings included "switch **the smaller team**", "switch **team A**'s production CI/CD",
+and "switch **the first repo**" - none matched the pattern's original verb list
+(`cut over|cutover|migrate|update|flip`) or object list (`frontend|backend|first/second/
+one/lower-risk/higher-risk team`). Added `switch` as a verb and `team a|team b|first
+repo|second repo|smaller team|remaining team` as objects, validated the broadened
+pattern doesn't collide with any of the frequent "kill switch"/"switchback" mentions
+elsewhere in this suite (checked directly - none of those are followed by a team/repo
+reference within the pattern's 50-char window).
+
+**`ms-01` had three independent, confirmed bugs, and inspecting them surfaced a fourth
+finding that's a real model behavior, not a scorer bug.** `required_steps[1]` (backfill)
+used a bare `"backfill"` phrase that matched an *earlier* schema-setup step mentioning
+backfill only as a forward reference - "this column remains unpopulated **until
+backfill**", "will reference order_statuses **after backfill**", "to ensure no data loss
+**during backfill**" - not the actual backfill action, which always comes later in every
+sample checked. Fixed with a regex requiring "backfill" not be immediately preceded by
+`until `/`after `/`during `/`before ` (four independent fixed-width negative lookbehinds,
+each individually valid even though the four phrases differ in length).
+`required_steps[3]` (drop old column) had two distinct problems: word-insertion variance
+("drop **orders.**status column", "drop the **legacy** status column", "drop the
+`status` **string** column" - all missed by the flat phrase list) fixed with a
+word-insertion-tolerant regex (`drop[\w\s\`.-]{0,20}status[\w\s\`.-]{0,15}column`); and a
+literal substring collision - the existing flat phrase `"drop column status"` is a
+substring of `"drop column status_id"`, which false-matched a *rollback* step
+hypothetically describing dropping the **new** column ("(2) run `ALTER TABLE orders DROP
+CONSTRAINT fk_orders_status_id`, (3) run `ALTER TABLE orders DROP COLUMN status_id`") as
+if it were the real final drop of the *old* column - fixed by converting that one phrase
+into `drop column status\b` (a word boundary rejects the trailing `_id`, since underscore
+is a word character and produces no boundary). None of these three fixes were the cause
+of `ms-01`'s stubbornly low `ordering_correct` (1-2/10 even after all three fixes),
+though - direct inspection of `[0,1]` (dual-write before backfill) across all 10 samples
+found that in 7-8 of them, the model's *own plan* backfills before deploying the
+dual-write code, which is a real, reproducible planning defect (not a phrasing gap): if
+existing writes to `orders.status` continue between an early backfill and a
+later-deployed dual-write path, any row updated in that window has a stale `status_id`
+that backfill already stamped and dual-write never revisits. This is worth surfacing as
+a genuine calibration finding on this suite, not something to patch away with more
+phrase engineering - left as-is. One sample (`R1 #1`) hit a different, structural issue
+instead: the model's own text combines both ideas into one step ("dual-write allows new
+writes to populate status_id **while backfill** processes historical data"), so both
+groups match the *same* step index, and the ordering check's strict less-than can never
+be satisfied by a tie - a scorer limitation for combined narration, not a case bug, and
+the same shape of issue `ms-08` hit independently below.
+
+**`ms-08`'s `required_steps[2]` (observe canary) was missing on all 10 samples for one
+reason: every sample says "**monitor**", never "observe"/"watch"/any of the other listed
+phrases.** Fixed with a co-occurrence pattern, `(?=.*(monitor|observ|watch))(?=.*canary)`,
+scoped to require "canary" in the same step specifically so it can't false-match the
+unrelated, always-earlier `monitoring_setup`-style infra step (confirmed directly - that
+step never mentions "canary" in any of the 10 samples). This raised `step_coverage` from
+0/10 to 9/10, but `ordering_correct` dropped from a vacuous 10/10 (the constraint was
+never evaluable before, since group 2 never matched) to 6/10 - in 4 samples, the model
+writes one combined step ("enable_canary enable provider for 1-2% of real transactions;
+activate all monitoring... to begin observing real-world performance") that satisfies
+both the "start the canary" and "observe the canary" groups at the identical index,
+which the strict-less-than ordering check can never pass. This is the same tied-index
+class `ms-01` hit above, not a new bug, and not something narrowing the pattern further
+would fix without also losing real coverage - left open. Net effect is still a clear win:
+`fully_correct` went from a hard 0/10 (coverage always failed) to 5/10.
+
+**`ms-10`'s `required_steps[3]` (full rollout) needed three small regexes for three
+distinct real phrasings**, all word-insertion variants of already-listed phrases: `"100%
+of production traffic"`/`"100% of traffic"` (inserted words between the literal `"100%
+traffic"` phrase - fixed with `100%[\w\s]{0,20}traffic`, direction-limited rather than an
+order-agnostic lookahead specifically because one sample's *intra-canary* traffic ramp
+("Traffic to canary gradually increased in stages (5% → 25% → 50% → 100%)") mentions
+"traffic" and "100%" in the same sentence too, just in the opposite order - confirmed the
+directional, distance-limited version doesn't match that sentence before trusting it);
+`"all remaining production regions"` (fixed with `remaining[\w\s-]{0,20}regions`,
+matching the case's own existing plural-only word choice); and `"rollout completed to
+all regions"` / `"traffic fully shifted... at 100%"` (fixed with `(complet(e|ed)|
+shift(ed)?)[\w\s;,.]{0,30}(all regions|100%)`). All three were checked against the one
+sample (of 5, in the fresh run) that plans a percentage ramp with no separate "all
+regions"/"100% traffic" sentence at all ("increase traffic percentage to new algorithm
+(5% → 25% → 50% → 100%) or expand to additional regions") - none of the three regexes
+match it, correctly, since that plan genuinely never states unambiguously that it
+reaches full rollout across all regions rather than just a traffic percentage; left as a
+genuine, if minor, coverage gap rather than forced to pass. `step_coverage` went from
+6/10 to 9/10 without breaking any of the already-passing samples.
+
+**Two bugs found by extension, not by the four flagged cases:** `ms-02`'s
+`required_steps[2]` (expand) missed on 2 of 6 real samples (4 of the 10 total samples in
+these two runs are `ms-02`'s well-documented parse/timeout failures, unrelated to
+phrasing - see the N=5 section above) for the same reason both times: the plan says
+"repeat for each **remaining region**" (singular), and the existing phrase list only had
+the plural "remaining regions." Fixed by adding the singular phrase directly (a plain
+substring addition, no regex needed, and confirmed safe - every real occurrence of
+"remaining region" in this suite's samples is genuinely about region-by-region
+expansion, no false-positive risk found). `ms-04`'s and `ms-12`'s
+`required_steps[1]` (shared template) share the exact same group definition for the
+same "consolidate two CI/CD pipelines" scenario, and both showed the same word-insertion
+gap on multiple samples: "the **shared ci/cd pipeline** template", "the **shared
+pipeline infrastructure and** template", "the **consolidated pipeline** template" - none
+matching the flat `"shared template"`/`"unified pipeline"`/`"common template"` phrases.
+Fixed once with `(shared|unified|consolidated|common)[\w\s/-]{0,25}(template|pipeline)`
+and applied to both cases, since it's confirmed the same underlying group and the same
+failure mechanism, not two coincidentally-similar bugs.
+
+**Deliberately left open, and why - same "don't patch on n=1, don't force a match"
+discipline this file has followed throughout:**
+- `ms-01`'s remaining `[0,1]` ordering misses (7-8/10 samples) - a real, reproducible
+  model planning defect (backfill before dual-write), not a scorer bug; documented above,
+  not chased further.
+- `ms-01` sample `R1 #1` and several `ms-08` samples - tied-index ordering failures from
+  the model narrating two required concepts inside one combined step; a scorer
+  limitation (strict less-than can't score a tie), not a phrase-list problem, and out of
+  scope for a phrase-widening pass.
+- `ms-02`'s `required_steps[1]` (monitor) bare-word collision with an earlier, unrelated
+  `monitoring_setup` infra-provisioning step - the same class of bug `ms-08`'s fix
+  targets, confirmed present here too, but *not* applied in this pass to avoid further
+  scope creep beyond the four originally-flagged cases plus the two directly-adjacent
+  bugs found while inspecting them. Good candidate for the next pass, using the same
+  `(?=.*monitor)(?=.*canary-or-region-specific-term)` co-occurrence approach.
+- `ms-03`'s `required_steps[1]` (shadow/dual-write) misses - inspected both real misses
+  directly; neither is a phrasing gap. Both plans jump from staging reconciliation
+  straight to a live canary percentage without ever describing a production
+  shadow/dual-processing step first - a genuine plan gap, not a word-choice problem.
+- `ms-03`'s `required_steps[2]` (staged rollout/percentage) - re-confirmed still open
+  per the precedent already recorded in the prior revision section: a bare percentage
+  regex was tried and rejected again this pass for the same reason as before (the
+  case's own `shadow`/dual-write step independently mentions percentages like "100% of
+  transactions" for an unrelated purpose in several samples, which a percentage-based
+  regex can't safely distinguish from the real staged-rollout ramp without also
+  requiring semantic context embeddings already ruled out).
+
+**Before/after, re-scored offline against both saved run files using the final,
+committed `multi_step.jsonl` (zero new model calls):**
+
+| check | R1 before | R1 after | R2 before | R2 after |
+|---|---|---|---|---|
+| step_coverage | 39/60 (65.0%) | 47/60 (78.3%) | 31/60 (51.7%) | 48/60 (80.0%) |
+| ordering_correct | 31/60 (51.7%) | 31/60 (51.7%) | 31/60 (51.7%) | 33/60 (55.0%) |
+| no_false_positives | 60/60 (100%) | 60/60 (100%) | 60/60 (100%) | 60/60 (100%) |
+| fully_correct | 19/60 (31.7%) | 24/60 (40.0%) | 17/60 (28.3%) | 24/60 (40.0%) |
+
+Combined across both runs (120 samples): `fully_correct` 36/120 (30.0%) -> 48/120
+(40.0%), `step_coverage` 70/120 (58.3%) -> 95/120 (79.2%), `ordering_correct` 62/120
+(51.7%) -> 64/120 (53.3%). No case's `fully_correct` count decreased in either run after
+these fixes - the `ordering_correct` dip inside `ms-08` (5/5 -> 3/5 in each run, discussed
+above) is the one metric that got *worse* per-case, and it's a fully understood tradeoff
+(a previously-vacuous pass becoming a real, sometimes-failing check now that
+`step_coverage` actually finds the group), not a hidden regression - `ms-08`'s
+`fully_correct` still rose in both runs (0/5 -> 3/5 and 0/5 -> 2/5) because coverage was
+the binding constraint before.
+
+**Not re-run against the model.** Every number above comes from re-scoring the two
+existing saved runs' `predicted` dicts - zero new `claude -p` calls, zero new cost, per
+this task's constraint. A fresh N-sample run is the natural next step before trusting
+these numbers for a tier decision, for the same reason the prior revision pass's fresh
+run diverged from its own offline prediction (65% predicted vs. 51.7% actual on
+`step_coverage`) - every fix here was validated against the same 120 samples that
+motivated it, which confirms the fix behaves as intended but not that it generalizes to
+new generations. `ms-02`'s and `ms-12`'s `required_steps` fixes in particular haven't
+been checked against fresh output at all.
