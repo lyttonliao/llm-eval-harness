@@ -784,3 +784,59 @@ existing saved run's `predicted` dicts - zero new `claude -p` calls, zero new co
 A fresh N-sample run (to see whether `haiku`'s *actual* fully-correct rate moves, not
 just the re-scored one) is the natural next step before trusting this suite's numbers
 for a tier decision, but wasn't done in this session.
+
+## `multi_step` fresh N-sample run after the phrase-group revision (2026-07-26) - real gain confirmed, smaller than the offline re-score predicted
+
+Ran the fresh N-sample validation the revision above deferred: `python -m eval_harness
+run --suite multi_step --prompt multi_step_v1 --model haiku --samples 5` against 12
+newly-generated haiku samples per case (not a re-score of old ones), $2.75, saved as
+`runs/20260726T212852Z__multi_step_v1__haiku.json`.
+
+| check | prior N=5 (pre-revision) | offline re-score (same old samples, new scorer) | fresh N=5 (new samples, new scorer) |
+|---|---|---|---|
+| step_coverage | 30% | 65% | 51.7% |
+| ordering_correct | 48% | 52% | 51.7% |
+| no_false_positives | 100% | 100% | 100% |
+| fully_correct | 15.0% | n/a | 28.3% |
+
+**Verdict: the revision produced a real, non-trivial improvement on genuinely new
+model output - fully-correct nearly doubled (15.0% -> 28.3%) - but the offline
+re-score overstated the gain (65% predicted vs. 51.7% actual on step_coverage).**
+This is expected, not a bug: re-scoring reused the exact same 5 old samples the
+phrase-group fixes were tuned against, so it measures "did this fix behave as
+intended on the sample that motivated it," not "how well does this generalize to
+a fresh draw." Treat offline re-scores as a fix-verification step, not a stand-in
+for a real run, going forward.
+
+**`ms-04` is the clearest illustration of that gap.** The offline re-score predicted
+`ms-04` would go from 0/5 to 2/5 after narrowing `required_steps[3]`'s "for both
+frontend and backend" phrase. The fresh run still shows `ms-04` at 0/5 - inspected
+directly (no new model calls needed, `predicted` dicts are in the saved run file):
+all 3 step_coverage misses have a substantively correct final-confirmation step
+(e.g. "both teams must confirm before proceeding to stability window", "verify all
+expected steps... are working identically to before", "Both teams have now
+independently validated the template under real-world load") that simply doesn't
+contain any phrase in group 3's list. The earlier narrowing fix was correct as far
+as it went (it stopped a false regression on the old samples) but doesn't generalize
+- this group still needs broadening, not narrowing, and is a concrete instance of
+the "systematic rewrite is larger than 2-3 groups" conclusion the revision section
+above already flagged rather than a new finding.
+
+**No `ms-02` timeouts this run** (0 of 60 calls) - the prior N=5 run's 4/5 timeout
+rate on `ms-02` even at the 240s timeout did not recur, consistent with that being a
+transient rate-limit window rather than something specific to `ms-02`'s content.
+
+**Four cases are now consistently 0/5**: `ms-01`, `ms-04`, `ms-08`, `ms-10`. Per the
+"don't patch on n=1/re-scored evidence" discipline this file has followed since the
+`code_review` caveat, none of these should be patched off this single fresh run
+alone - `ms-04`'s cause is directly confirmed above (a phrase-coverage gap, real and
+reproducible across all 3 misses in this sample), but `ms-01`/`ms-08`/`ms-10` haven't
+had the same direct-inspection treatment yet and shouldn't be assumed to be the same
+class of gap without it.
+
+**Don't treat 28.3% fully-correct as this suite's real ceiling for a tier decision
+yet.** The dominant failure mode across both the pre- and post-revision runs is still
+scorer phrase-strictness on a substantively correct plan, not planning quality itself
+- the revision closed part of that gap but, per the analysis above, real generalization
+is smaller than hoped and the suite likely still needs the broader phrase-group rewrite
+this file has deferred twice now rather than another narrow patching pass.
