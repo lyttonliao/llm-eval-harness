@@ -86,7 +86,8 @@ def main() -> None:
     p_run.add_argument(
         "--samples", type=int, default=1,
         help="run each case N times and report a per-case pass rate instead of pass/fail - "
-        "cost/call-count scale by N (see multi_step's single-sample instability in CLAUDE.md)",
+        "cost/call-count scale by N (see CLAUDE.md's \"Working rules\" on not "
+        "concluding from a single sample)",
     )
 
     p_cmp = sub.add_parser("compare", help="run two prompt versions head-to-head")
