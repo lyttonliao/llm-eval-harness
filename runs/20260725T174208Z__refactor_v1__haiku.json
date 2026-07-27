@@ -1,0 +1,208 @@
+{
+  "prompt_version": "refactor_v1",
+  "model": "haiku",
+  "provider": "claude",
+  "total_cases": 12,
+  "check_accuracies": {
+    "tests_passed": 1.0,
+    "smells_removed": 1.0
+  },
+  "fully_correct_rate": 1.0,
+  "avg_judge_score": 0.8808333333333334,
+  "total_cost_usd": 0.0966921,
+  "total_tokens": 0,
+  "results": [
+    {
+      "test_id": "rf-01",
+      "predicted": {
+        "reasoning": "Extract the common cart-total loop before the conditional, applying the member discount only after the subtotal is computed.",
+        "code": "def compute_total(cart, is_member):\n    total = 0\n    for item in cart:\n        total += item.price * item.qty\n    \n    if is_member:\n        total = total * 0.9\n    \n    return round(total, 2)"
+      },
+      "checks": {
+        "tests_passed": true,
+        "smells_removed": true
+      },
+      "judge_score": 0.92,
+      "judge_rationale": "Reasoning directly maps to the refactoring performed: loop extraction before the conditional is the stated approach, and the code implements exactly this with conditional discount application after the subtotal\u2014grounded in the task's specific duplication pattern, not generic; only minor weakness is not explicitly stating behavior preservation, though it's implicit in a refactor task.",
+      "cost_usd": 0.0051855,
+      "duration_ms": 6018,
+      "token_usage": {}
+    },
+    {
+      "test_id": "rf-02",
+      "predicted": {
+        "reasoning": "Extract the magic number 4.99 into a module-level constant BASE_SHIPPING_RATE, replacing all four occurrences of the literal value while preserving the function's logic and behavior.",
+        "code": "BASE_SHIPPING_RATE = 4.99\n\ndef get_shipping_cost(weight_kg, is_express):\n    if weight_kg <= 1:\n        cost = BASE_SHIPPING_RATE\n    elif weight_kg <= 5:\n        cost = BASE_SHIPPING_RATE * 2\n    else:\n        cost = BASE_SHIPPING_RATE * 3\n    if is_express:\n        cost += BASE_SHIPPING_RATE\n    return round(cost, 2)"
+      },
+      "checks": {
+        "tests_passed": true,
+        "smells_removed": true
+      },
+      "judge_score": 0.82,
+      "judge_rationale": "The reasoning accurately identifies the specific magic number (4.99), names the concrete constant (BASE_SHIPPING_RATE), correctly counts the four occurrences to replace, and explicitly grounds the refactoring goal in the stated constraint (preserving behavior); the code output directly implements what the reasoning describes without deviation.",
+      "cost_usd": 0.0064310999999999995,
+      "duration_ms": 7679,
+      "token_usage": {}
+    },
+    {
+      "test_id": "rf-03",
+      "predicted": {
+        "reasoning": "Remove the unused variable assignment and the unreachable if-False branch, keeping the three-way classification logic intact.",
+        "code": "def classify(n):\n    if n < 0:\n        return \"negative\"\n    if n == 0:\n        return \"zero\"\n    return \"positive\""
+      },
+      "checks": {
+        "tests_passed": true,
+        "smells_removed": true
+      },
+      "judge_score": 0.92,
+      "judge_rationale": "The reasoning directly and specifically identifies the two dead-code pieces (unused assignment and False branch) and correctly states the preservation goal, with the refactored code perfectly matching what the reasoning describes.",
+      "cost_usd": 0.0047154,
+      "duration_ms": 5099,
+      "token_usage": {}
+    },
+    {
+      "test_id": "rf-04",
+      "predicted": {
+        "reasoning": "Replace the mutable default argument with None and initialize an empty list inside the function to ensure each call without an explicit cart argument gets its own fresh list instance.",
+        "code": "def add_item(item, cart=None):\n    if cart is None:\n        cart = []\n    cart.append(item)\n    return cart"
+      },
+      "checks": {
+        "tests_passed": true,
+        "smells_removed": true
+      },
+      "judge_score": 0.9,
+      "judge_rationale": "The reasoning directly identifies the problem (mutable default argument causing state sharing across calls), explains the mechanism (None + conditional initialization), and ties both to this specific function's behavior \u2014 not generic boilerplate \u2014 and the implementation faithfully reflects what was stated.",
+      "cost_usd": 0.006422499999999999,
+      "duration_ms": 8885,
+      "token_usage": {}
+    },
+    {
+      "test_id": "rf-05",
+      "predicted": {
+        "reasoning": "Remove redundant `== True`/`== False` comparisons and collapse the if/else into a direct return of the boolean expression.",
+        "code": "def is_eligible(is_active, is_banned):\n    return is_active and not is_banned"
+      },
+      "checks": {
+        "tests_passed": true,
+        "smells_removed": true
+      },
+      "judge_score": 0.85,
+      "judge_rationale": "The reasoning directly targets specific redundancies present in the original code\u2014the literal `== True`/`== False` comparisons and the unnecessary if/else that returns a boolean condition\u2014and the stated refactoring strategy of removing these and collapsing to a direct return logically leads to the answer provided. For boolean-typed inputs (which the parameter names `is_active`/`is_banned` indicate), the transformation is correct and behavior-preserving, though the reasoning could be marginally stronger by explicitly stating the boolean-input assumption or verifying equivalence.",
+      "cost_usd": 0.005025,
+      "duration_ms": 5456,
+      "token_usage": {}
+    },
+    {
+      "test_id": "rf-06",
+      "predicted": {
+        "reasoning": "Extract the duplicated positive-amount validation into a shared helper function to eliminate code duplication while preserving exact behavior.",
+        "code": "def _validate_positive_amount(amount):\n    if amount <= 0:\n        raise ValueError(\"amount must be positive\")\n\ndef charge_card(amount):\n    _validate_positive_amount(amount)\n    return amount\n\ndef refund_card(amount):\n    _validate_positive_amount(amount)\n    return -amount"
+      },
+      "checks": {
+        "tests_passed": true,
+        "smells_removed": true
+      },
+      "judge_score": 0.92,
+      "judge_rationale": "Reasoning specifically identifies the duplicated piece ('positive-amount validation'), names the extraction mechanism ('shared helper function'), and addresses the preservation constraint ('preserving exact behavior') \u2014 all directly supported by the implementation, which correctly factors out the identical if-block and calls it from both functions without changing their return behavior.",
+      "cost_usd": 0.0056837,
+      "duration_ms": 6444,
+      "token_usage": {}
+    },
+    {
+      "test_id": "rf-07",
+      "predicted": {
+        "reasoning": "Rename `t` to `total` (the accumulator's purpose) and `i` to `index` (its role as a loop index), preserving the exact same behavior including the off-by-one loop boundary.",
+        "code": "def total_price(items):\n    total = 0\n    for index in range(len(items) - 1):\n        total += items[index]\n    return total"
+      },
+      "checks": {
+        "tests_passed": true,
+        "smells_removed": true
+      },
+      "judge_score": 0.94,
+      "judge_rationale": "Reasoning is internally coherent and grounded: model explains the specific naming purpose for each variable (t\u2192total as accumulator, i\u2192index as loop role), explicitly references the task constraint (preserve exact behavior), and crucially demonstrates scope discipline by acknowledging the off-by-one boundary preservation\u2014showing intentional preservation of the existing (buggy) behavior rather than accidental, which is the core refactoring skill this case tests.",
+      "cost_usd": 0.0051667,
+      "duration_ms": 6204,
+      "token_usage": {}
+    },
+    {
+      "test_id": "rf-08",
+      "predicted": {
+        "reasoning": "Consolidate the identical discount logic for 'electronics' and 'clothing' into a single conditional that checks if the category belongs to that group, then apply tiered pricing; the 'else' case and the \u2264100 price tier both return 0.95x, so they can be unified in the fallback.",
+        "code": "def compute_discounted(price, category):\n    if category in (\"electronics\", \"clothing\") and price > 100:\n        return round(price * 0.9, 2)\n    return round(price * 0.95, 2)\n"
+      },
+      "checks": {
+        "tests_passed": true,
+        "smells_removed": true
+      },
+      "judge_score": 0.9,
+      "judge_rationale": "The reasoning is internally coherent and grounded in specific task details: it correctly identifies the consolidation mechanism ('category in group'), accurately names the threshold condition ('price > 100'), and specifically observes that both the else-case and the \u2264100 tiers return 0.95x. The refactored code matches what the reasoning describes, and the reasoning correctly captures the key insight\u2014that two identical branches can merge by checking set membership. Minor: the phrasing 'then apply tiered pricing' is somewhat redundant when the price threshold is already mentioned, and it stops short of explicitly stating 'this preserves behavior' as the grounding assumption.",
+      "cost_usd": 0.0070052,
+      "duration_ms": 10248,
+      "token_usage": {}
+    },
+    {
+      "test_id": "rf-09",
+      "predicted": {
+        "reasoning": "Replace the inefficient linear _slow_lookup with dict's native get() method for O(1) lookup instead of O(n) iteration.",
+        "code": "def get_value(table, key):\n    return table.get(key)\n"
+      },
+      "checks": {
+        "tests_passed": true,
+        "smells_removed": true
+      },
+      "judge_score": 0.93,
+      "judge_rationale": "The reasoning correctly identifies the specific inefficiency (linear O(n) iteration via _slow_lookup) and proposes the precise solution (dict.get() for O(1) lookup), and the refactored code directly implements that proposal while preserving the public interface and semantics.",
+      "cost_usd": 0.0109637,
+      "duration_ms": 17590,
+      "token_usage": {}
+    },
+    {
+      "test_id": "rf-10",
+      "predicted": {
+        "reasoning": "Replace the if/elif chain with a dictionary lookup using dict.get() to provide the fallback value for unrecognized codes, improving readability and maintainability without changing behavior.",
+        "code": "def http_status_message(code):\n    status_map = {\n        200: \"OK\",\n        201: \"Created\",\n        404: \"Not Found\",\n        500: \"Internal Server Error\",\n    }\n    return status_map.get(code, \"Unknown Status\")"
+      },
+      "checks": {
+        "tests_passed": true,
+        "smells_removed": true
+      },
+      "judge_score": 0.9,
+      "judge_rationale": "Reasoning directly and specifically names the refactoring technique (dict.get() with fallback), identifies the exact benefit axis (readability/maintainability), and commits to behavior preservation\u2014all verified against the working implementation; only minor gap is not articulating *why* a dict lookup improves readability over if/elif chains (clearer intent, reduced nesting).",
+      "cost_usd": 0.0047057,
+      "duration_ms": 4402,
+      "token_usage": {}
+    },
+    {
+      "test_id": "rf-11",
+      "predicted": {
+        "reasoning": "Improve code clarity by renaming the cryptic variable 'v' to 'priority' and using f-string syntax instead of string concatenation for the error message, while maintaining identical behavior and validation contract.",
+        "code": "def parse_priority(value):\n    if value is None:\n        raise ValueError(\"priority is required\")\n    priority = str(value).strip().lower()\n    if priority not in (\"low\", \"medium\", \"high\"):\n        raise ValueError(f\"invalid priority: {value}\")\n    return priority"
+      },
+      "checks": {
+        "tests_passed": true,
+        "smells_removed": true
+      },
+      "judge_score": 0.89,
+      "judge_rationale": "The reasoning accurately identifies two specific, implemented changes (variable rename from 'v' to 'priority', f-string over concatenation) that genuinely improve clarity, correctly claims identical behavior and validation contract preservation, and is grounded in concrete implementation details\u2014but could be stronger by explaining *why* these specific improvements matter (e.g., 'v' was cryptic, f-strings are more readable) rather than just naming them.",
+      "cost_usd": 0.022736400000000004,
+      "duration_ms": 37949,
+      "token_usage": {}
+    },
+    {
+      "test_id": "rf-12",
+      "predicted": {
+        "reasoning": "Extract the hardcoded threshold 20 into a named constant MIN_ORDER_THRESHOLD, then hoist the duplicated tax calculation (subtotal * 1.05) outside the conditional so it runs once for both branches; the discount logic simplifies since the guard clause already ensures subtotal >= 20.",
+        "code": "MIN_ORDER_THRESHOLD = 20\n\ndef calculate_invoice_total(subtotal, is_international):\n    if subtotal < MIN_ORDER_THRESHOLD:\n        raise ValueError(\"subtotal below minimum of 20\")\n    \n    total = subtotal * 1.05\n    \n    if is_international:\n        total = total + 15.00\n        total = total - 2.00\n    \n    return round(total, 2)"
+      },
+      "checks": {
+        "tests_passed": true,
+        "smells_removed": true
+      },
+      "judge_score": 0.68,
+      "judge_rationale": "The reasoning correctly identifies the two refactoring objectives and the answer is functionally correct, but it glosses over non-trivial implementation details: (1) the algebraic simplification from `subtotal + subtotal * 0.05` to `subtotal * 1.05` is presented as mere 'hoisting' rather than an explicit transformation, and (2) removing the redundant `subtotal >= 20` check from the discount condition is buried in vague language ('the discount logic simplifies') instead of being articulated as a distinct decision enabled by the guard clause \u2014 someone unfamiliar with the code would struggle to verify why those moves are safe without working through the logic themselves.",
+      "cost_usd": 0.012651199999999998,
+      "duration_ms": 18923,
+      "token_usage": {}
+    }
+  ]
+}

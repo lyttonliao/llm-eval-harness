@@ -5,7 +5,13 @@ from dataclasses import dataclass, field
 class TestCase:
     id: str
     input: str
-    expected: dict[str, str]  # suite-specific: e.g. {"severity": ..., "category": ...} or {"test_code": ...}
+    expected: dict  # suite-specific: e.g. {"severity": ..., "category": ...}, {"test_code": ...},
+    # {"must_include": [[...]], "must_exclude": [...], "max_words": ...},
+    # {"must_flag": [{"phrases": [...], "severity": ...}], "must_not_flag": [...]},
+    # {"test_code": ..., "structural_checks": [{"type": "not_contains"|"max_occurrences", "pattern": ..., "max": ...}]}, or
+    # {"required_steps": [{"phrases": [...]}], "ordering_constraints": [[early_idx, late_idx]], "must_not_include": [...]}, or
+    # {"must_include": [[...]], "must_not_include": [...], "min_alternatives": <int>}
+    # - values aren't always str
     notes: str = ""  # why this case is here / what it's meant to catch
 
 
@@ -48,3 +54,4 @@ class RunSummary:
     total_tokens: int = 0
     results: list[ScoredResult] = field(default_factory=list)
     provider: str = "claude"
+    samples_per_case: int = 1  # >1 means `results` holds N ScoredResults per test_id, not one

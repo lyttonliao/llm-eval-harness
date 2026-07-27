@@ -1,0 +1,440 @@
+{
+  "prompt_version": "architecture_v1",
+  "model": "opus",
+  "provider": "claude",
+  "total_cases": 12,
+  "check_accuracies": {
+    "key_considerations_addressed": 0.6666666666666666,
+    "no_anti_patterns": 0.9166666666666666,
+    "tradeoffs_articulated": 0.9166666666666666
+  },
+  "fully_correct_rate": 0.5833333333333334,
+  "avg_judge_score": 0.785,
+  "total_cost_usd": 1.2166165,
+  "total_tokens": 0,
+  "results": [
+    {
+      "test_id": "ar-01",
+      "predicted": {
+        "reasoning": "Move the rate-limit state out of the application instances into a single shared, atomically-updated store (Redis) so every instance sees the same counter per API key, and make that store redundant with automatic failover plus a bounded local-fallback path so it is neither a single point of failure nor a hard dependency on the request path.",
+        "design": "**Enforcement point.** Rate limiting runs as middleware in each API instance (not a separate hop), but all counter state lives in a shared Redis keyspace so enforcement is identical regardless of which instance the load balancer picks.\n\n**Algorithm.** Token bucket per API key, evaluated in a single Redis Lua script so check-and-decrement is atomic (no read-modify-write race between instances). Key shape `rl:{api_key}` holding `tokens` and `last_refill_ms` in a hash, with a TTL of a few multiples of the refill window so idle keys evict themselves and the keyspace stays proportional to active keys, not total keys issued. The script refills based on elapsed wall time, decrements if tokens remain, and returns `(allowed, remaining, retry_after_ms)`. One round trip per request, O(1) memory per active key. Token bucket over fixed windows because it absorbs legitimate bursts and has no boundary-doubling artifact; over sliding-window-log because the log's per-request memory is unnecessary at this granularity.\n\n**Consistency.** The API key is hashed into the Redis key, and the whole decision is one script on one key, so it is a single-slot operation \u2014 this works unchanged if Redis is later run as a cluster with hash slots, since one key never spans slots. Clock skew across instances is irrelevant because refill time comes from Redis's own clock (`TIME` inside the script), not the caller's.\n\n**Not a single point of failure \u2014 two layers.**\n1. *Redundancy:* Redis runs as a primary with a replica in a second availability zone with automatic failover (managed Multi-AZ, e.g. ElastiCache, or Sentinel if self-hosted). Clients use the failover DNS endpoint and reconnect on `READONLY`/connection errors. Failover is on the order of tens of seconds; counters written but not yet replicated may be lost, which costs at most one window of over-permitted traffic per key \u2014 acceptable, and far cheaper than making the limiter synchronously durable.\n2. *Degraded local fallback:* every Redis call has a hard 5\u201310 ms timeout behind a circuit breaker. If Redis is unreachable or slow, the breaker opens and each instance falls back to a local in-process token bucket sized at `limit / current_instance_count` (instance count read from the service registry / desired-count, refreshed periodically). This is deliberately approximate \u2014 under uneven load balancing it will over- or under-limit somewhat \u2014 but it keeps abuse bounded and, critically, means Redis being down degrades limiter *accuracy* rather than taking the API itself down. The breaker half-opens and returns to shared state automatically.\n\n**Response contract.** `429` with `Retry-After` and `X-RateLimit-Limit` / `-Remaining` / `-Reset` headers on every response (not just rejections) so clients can self-throttle instead of hammering.\n\n**Observability.** Emit `ratelimit_decisions_total{result=allow|deny, mode=shared|fallback}`, Redis call latency histogram, and breaker state as Prometheus metrics. `mode=fallback` firing is the alert that matters \u2014 it means enforcement is currently approximate.\n\n**Sizing note.** This is one small Redis (or a managed replicated pair), not a cluster, unless key volume or throughput actually demands sharding; a single primary handles tens of thousands of these scripts per second, so the multi-node cluster is a later, evidence-driven step rather than part of v1.",
+        "alternatives_considered": [
+          {
+            "option": "Per-instance in-memory counters with the limit divided by instance count (no shared store)",
+            "rejected_because": "It cannot enforce the limit consistently per API key, which is an explicit requirement \u2014 a load balancer distributing by connection rather than by key means one client's requests spread across instances and each instance only ever sees a fraction of that key's traffic, so a client can exceed the global limit by up to the instance count; it also breaks every time the fleet autoscales."
+          },
+          {
+            "option": "Sticky routing at the load balancer \u2014 hash the API key so all requests for a key always land on the same instance, then count locally",
+            "rejected_because": "It makes each instance a single point of failure for its slice of keys, which the no-SPOF requirement forbids, and every scale-out or instance replacement reshuffles the hash ring and resets in-flight counters, allowing a burst window on every deploy. It also creates hot instances when one large customer dominates traffic."
+          },
+          {
+            "option": "A dedicated rate-limiter microservice that instances call over gRPC",
+            "rejected_because": "It adds a network hop and a second service to keep highly available without buying anything over calling Redis directly \u2014 the atomicity that matters is already provided by the Lua script, so the extra tier would just be a stateless proxy in front of the same Redis, adding latency and another failure domain."
+          },
+          {
+            "option": "Eventually-consistent counter replication between instances (gossip / CRDT counters)",
+            "rejected_because": "Convergence lag means the limit is only enforced approximately at exactly the moment it matters most \u2014 a burst arriving faster than the sync interval slips through on every instance simultaneously \u2014 and it's substantially more complex to operate than a replicated Redis for a problem that a single atomic key already solves."
+          }
+        ]
+      },
+      "checks": {
+        "key_considerations_addressed": true,
+        "no_anti_patterns": true,
+        "tradeoffs_articulated": true
+      },
+      "judge_score": 0.87,
+      "judge_rationale": "The reasoning directly addresses both task constraints (consistent per-key enforcement and no SPOF) with specific mechanisms (Redis + failover + circuit-breaker fallback) and the design follows it consistently, though the one-sentence format necessarily compresses why the fallback is *essential* to prevent Redis itself from becoming the SPOF it's meant to eliminate.",
+      "cost_usd": 0.07535000000000001,
+      "duration_ms": 38495,
+      "token_usage": {}
+    },
+    {
+      "test_id": "ar-02",
+      "predicted": {
+        "reasoning": "Split the storage by access pattern rather than building one store that has to be both fast and cheap: a small, time-partitioned hot store sized to hold exactly 24 hours, plus an automated export of aged partitions to columnar object storage, behind a query layer that unions the two.",
+        "design": "**Ingest.** Devices publish over MQTT to a managed broker (AWS IoT Core) with per-device certs. IoT Core rules forward messages to Kinesis Data Streams (or MSK/Kafka if already run in-house). 10k writes/sec at ~200 B/message is ~2 MB/s, so ~8-10 shards with headroom; the stream exists for buffering and replay during downstream maintenance, not for scale. Retention 24h so a consumer outage is recoverable without data loss.\n\n**Hot store (last 24h).** A stateless consumer service (ECS Fargate, 2-3 tasks) reads the stream and does batched inserts into TimescaleDB on RDS/Aurora Postgres \u2014 batch 2,000-5,000 rows per COPY, flush on 1s or full batch. Per-row inserts at 10k/s would be the actual bottleneck, batching makes it a few hundred transactions/sec, comfortable for a single writer instance (db.r6g.2xlarge class) with a multi-AZ standby and one read replica for query traffic. Hypertable partitioned into 1-hour chunks, primary index `(device_id, ts DESC)`, plus a BRIN index on `ts` for scan-heavy range queries. 24h of data at ~864M rows/day is ~100-150 GB with indexes \u2014 fits on local NVMe/gp3 and largely in page cache, which is what keeps last-24h queries in the low tens of ms. Continuous aggregates maintain 1-min and 1-hour per-device rollups, since most dashboard queries are aggregate, not raw-point, reads.\n\n**Tiering to cold.** A scheduled job (hourly, EventBridge + small Fargate task) exports each chunk older than 24h to S3 as Parquet, partitioned `s3://.../readings/dt=YYYY-MM-DD/hour=HH/`, Snappy-compressed, sorted by `device_id, ts`. Columnar + sorted gives roughly 8-15x compression over raw rows, so ~6-10 GB/day. The job verifies row counts against the chunk before issuing `drop_chunks` on the hot store \u2014 export is verified-then-drop, never drop-on-schedule. S3 lifecycle moves objects to Infrequent Access at 30 days and Glacier Instant Retrieval at 180 days. Cold storage cost lands around $0.15-0.25/day/day-of-data at Standard, an order of magnitude under keeping it in the hot store.\n\n**Query layer.** One API service (FastAPI) exposing a time-range query. It routes by the requested window: entirely within 24h \u2192 Postgres/Timescale read replica; entirely older \u2192 Athena over the Parquet partitions (partition pruning on `dt`/`hour` keeps scanned bytes small); spanning the boundary \u2192 both, union the results. Callers get a consistent interface and don't need to know about tiering. Cold queries return in seconds, which the stated \"queried rarely\" requirement tolerates; the SLA is only asserted on the hot path.\n\n**Operational details.** Consumer lag (Kinesis `GetRecords.IteratorAgeMilliseconds`), batch flush latency, tiering job success/row-count-delta, and hot-store chunk count are the four alerting signals. Writes are idempotent on `(device_id, ts)` so a consumer restart replaying the stream can't double-count. Late-arriving readings older than the current chunk boundary go to a small quarantine table and get folded into the next hourly export rather than reopening a dropped chunk.\n\n**Deliberately not included:** no Kafka Streams/Flink job, no Cassandra ring, no separate metadata service. At 10k writes/sec with a single ingest shape, one batching consumer and one Postgres writer is the correct size.",
+        "alternatives_considered": [
+          {
+            "option": "Keep everything in the hot time-series store and just set a long retention window (no cold tier).",
+            "rejected_because": "Directly violates the cheap-cold-storage requirement: at ~100-150 GB/day of indexed rows, a year of data is 40-50 TB on provisioned SSD plus a proportionally larger instance to hold the index working set \u2014 roughly 20-30x the cost of the same data as Parquet in S3, spent on data the scenario says is queried rarely."
+          },
+          {
+            "option": "Write everything to S3 as Parquet only (Kinesis Firehose \u2192 S3), and serve all queries with Athena.",
+            "rejected_because": "Firehose buffers on the order of minutes and Athena cold-starts each query with seconds-to-tens-of-seconds latency plus per-scan cost; the last-24h path has to be fast, and this design has no low-latency read path at all \u2014 it also makes recent-data queries the most expensive ones, since they're the most frequent."
+          },
+          {
+            "option": "Cassandra (or DynamoDB) as the hot store, partitioned by device and time bucket.",
+            "rejected_because": "10k writes/sec is well within a single batched Postgres/Timescale writer's range, so a distributed ring buys nothing here while adding repair/compaction operations and losing SQL aggregation \u2014 the continuous aggregates that serve the rollup dashboard queries would have to be rebuilt as a separate stream-processing job."
+          },
+          {
+            "option": "Drop the Kinesis buffer and have IoT Core rules write straight to the database.",
+            "rejected_because": "It removes the only place backpressure and replay can live: a database failover or a tiering-job-induced slowdown would drop device messages outright, since devices publish fire-and-forget and won't retry a lost reading."
+          }
+        ]
+      },
+      "checks": {
+        "key_considerations_addressed": false,
+        "no_anti_patterns": true,
+        "tradeoffs_articulated": true
+      },
+      "judge_score": 0.87,
+      "judge_rationale": "The reasoning identifies a sound strategic decision (time-based hot/cold split) directly justified by the stated constraints (fast last-24h queries + cheap older data), and the answer faithfully implements it with grounded tech choices; the alternatives demonstrate deliberation on why competing approaches fail against specific requirements (capacity math, latency SLA, over-engineering); minor deduction only because the one-sentence reasoning doesn't detail the hourly-partition structure or why a single batched writer handles 10k/sec, details the answer clarifies but the reasoning assumes.",
+      "cost_usd": 0.0788355,
+      "duration_ms": 45282,
+      "token_usage": {}
+    },
+    {
+      "test_id": "ar-03",
+      "predicted": {
+        "reasoning": "Make the individual file \u2014 not the daily run \u2014 the unit of work, so validation, load, and failure are all scoped per file, with an idempotent manifest that makes reprocessing and late arrivals ordinary rather than exceptional.",
+        "design": "Partner uploads land in an S3 bucket under a partner-scoped prefix (s3://partner-landing/acme/incoming/), with the business date parsed from the object key (and, when the key is unreliable, from a header row). S3 event notifications fan out to an SQS queue; a small ECS Fargate service (or Lambda if per-file runtime stays under a few minutes) consumes one message per file. Each file is an independent unit of work end to end.\n\nPer-file worker steps: (1) compute a checksum and look up (partner, business_date, filename, checksum) in a Postgres `ingest_manifest` control table; if the row already exists in state `loaded`, acknowledge and stop \u2014 this is what makes redelivery, re-uploads, and manual replays safe. (2) Validate structurally against a declared schema contract: expected column set and order, types, row-count floor, required non-null keys, and a parse of every row. Validation is all-or-nothing per file so a partially loaded day is never possible. (3) On success, write the parsed rows to Parquet in a staging prefix and load into a warehouse staging table, then apply to the target with a transaction scoped to that one file: delete the target partition for (partner, business_date, source_file) and insert, so a replay of the same file overwrites rather than duplicates. (4) Mark the manifest row `loaded` with row counts and load timestamp.\n\nFailure isolation: any validation or load error is caught, the file is moved to a quarantine prefix (s3://partner-landing/acme/quarantine/<date>/), the manifest row is written as `rejected` with the error class and the first few offending rows, and the SQS message is acknowledged as handled. Other files in the queue continue processing untouched, and the next invocation is unaffected \u2014 there is no shared run-level transaction and no run-level state that a rejected file can poison. Genuine infrastructure errors (warehouse unreachable, S3 5xx) are distinguished from data errors and are instead retried by SQS with exponential backoff up to maxReceiveCount, then routed to a DLQ for operator attention; data errors never enter the retry loop because retrying them is pointless.\n\nLate arrivals need no special path: a file dropped three days after its business date triggers the same event and loads into its own dated partition. A separate EventBridge-scheduled sweeper runs daily and does two things: (a) reconciliation \u2014 list the landing prefix and enqueue any object with no terminal manifest row, covering missed S3 events, and (b) an SLA check \u2014 for each expected (partner, business_date) in an `expected_feeds` table, alert to Slack/PagerDuty if nothing has been loaded within the agreed lateness window. This is how a missing file becomes visible, since absence of a file produces no event.\n\nDownstream dbt models read the target table with a `where business_date is not null` incremental strategy keyed on business_date, so a late day's arrival simply rebuilds that partition on the next dbt run rather than requiring a backfill.\n\nOperations and observability: manifest state (`received`/`rejected`/`loaded`) is the single source of truth and is queryable, so \"what happened to yesterday's file\" is a SQL question. The worker emits CloudWatch/Prometheus metrics for files_received, files_rejected by error class, rows_loaded, and per-file duration; Grafana alerts on rejected-file count above zero and on SLA misses. Reprocessing a quarantined file after the partner re-exports it is: drop the corrected file in the incoming prefix (new checksum, so the manifest lets it through) or re-enqueue the existing key manually.\n\nSizing note: this is one partner feed of daily CSVs, so it runs as a single small Fargate service (or Lambda) plus SQS plus the existing warehouse \u2014 no orchestrator cluster, no streaming layer, no distributed compute. All of it is Terraform-managed: bucket, notification config, queue and DLQ, task definition, IAM, EventBridge rule, and the control tables' migrations.",
+        "alternatives_considered": [
+          {
+            "option": "A single scheduled daily batch job that globs the day's prefix and loads every file inside one transaction",
+            "rejected_because": "One malformed CSV aborts that transaction, so the day's other good files never land and the job exits non-zero \u2014 and because the job is keyed to a run date, a file that arrives two days late has no run to pick it up without a manual backfill. The stated requirement is precisely that one bad file must not take the others or the next execution down with it."
+          },
+          {
+            "option": "Airflow DAG with dynamic task mapping \u2014 one mapped task per discovered file",
+            "rejected_because": "It genuinely would give per-file isolation, but it requires standing up and maintaining a scheduler, workers, and a metadata database for a single daily partner feed, and late files still have to be attached to some DAG run (either a backfill or a catch-all sensor). SQS plus a reconciliation sweeper gets the same isolation with no orchestration infrastructure, and treats a late file identically to an on-time one."
+          },
+          {
+            "option": "Load CSVs straight into the warehouse with a bulk COPY using an error-tolerance setting (e.g. MAXERROR / ON_ERROR = CONTINUE)",
+            "rejected_because": "It skips bad rows silently and loads the rest, which produces a partially loaded business date that looks complete downstream \u2014 there is no artifact to inspect, no way to distinguish a handful of dirty rows from an upstream schema change, and no clean replay. Whole-file validation with a quarantine prefix keeps every rejection auditable and every loaded partition complete."
+          },
+          {
+            "option": "Have the partner POST files to an authenticated API endpoint that validates and loads synchronously",
+            "rejected_because": "It couples ingestion availability to the partner's upload attempt \u2014 a warehouse maintenance window or a slow load turns into a failed upload on their side and a support thread on ours \u2014 and it requires the partner to change their export process, which for an external party is a negotiation, not a deploy. An S3 drop with pre-signed credentials keeps the handoff durable and asynchronous."
+          }
+        ]
+      },
+      "checks": {
+        "key_considerations_addressed": true,
+        "no_anti_patterns": true,
+        "tradeoffs_articulated": true
+      },
+      "judge_score": 0.8,
+      "judge_rationale": "The reasoning directly references task-specific constraints (late arrivals, malformed files, avoiding cross-file and cross-run blocking) and logically derives a sound architectural principle (file-level scoping + idempotent manifest) from them, which the design correctly implements via concrete choices (SQS, Postgres manifest with checksums, partition deletes). The reasoning is neither generic nor unsupported. Minor: it's somewhat abstract on implementation details (doesn't mention quarantine, EventBridge reconciliation for missing files, or partition-level transactions) and doesn't fully explain how late arrivals are handled operationally, but the core principle is well-grounded.",
+      "cost_usd": 0.08902349999999999,
+      "duration_ms": 49494,
+      "token_usage": {}
+    },
+    {
+      "test_id": "ar-04",
+      "predicted": {
+        "reasoning": "Two-region warm-standby (active-passive) with automated, machine-triggered promotion, sized so every stage of the failover fits inside an explicit sub-5-minute RTO budget without paying for active-active complexity an internal service doesn't need.",
+        "design": "TOPOLOGY \u2014 Active-passive across two AWS regions (primary us-east-1, secondary us-west-2). Identical stacks from one Terraform module parameterized by region: ECS Fargate service behind an internal ALB, private subnets, same task definition/image digest promoted by the same pipeline to both regional ECRs. Secondary runs WARM at ~30% of primary task count (min 2 tasks, never zero) with target-tracking autoscaling; warm capacity exists specifically so container cold start is not on the RTO critical path.\n\nTRAFFIC STEERING \u2014 Route 53 private hosted zone, failover routing policy (PRIMARY/SECONDARY alias records to each regional ALB), record TTL 30s. Because this is an internal service on private ALBs, Route 53's normal HTTP health checkers cannot reach the endpoints \u2014 so health checks are type CLOUDWATCH_METRIC (calculated health check over a composite alarm), fed by (a) an in-VPC synthetic canary Lambda in each region probing the regional ALB's deep /health every 10s (health checks DB connectivity + one downstream dependency, not just process liveness) and (b) ALB HealthyHostCount. Alarm requires 3 consecutive failed datapoints -> ~30s detection, tuned against flapping. Critically, the primary's health signal is evaluated from outside the primary region (canary in the secondary region also probes the primary cross-VPC via peering/TGW), so a total primary-region failure cannot suppress its own failure signal.\n\nDATA \u2014 Aurora PostgreSQL Global Database: writer cluster in primary, replicated secondary cluster (physical replication, typical lag <1s => RPO ~1s). Unplanned promotion is NOT automatic in Aurora Global DB by default, so the automation is built explicitly: the composite alarm publishes to EventBridge -> a failover Lambda deployed in the SECONDARY region (it must not depend on the failing region) that (1) takes a lease in a DynamoDB global table to guarantee idempotency and prevent concurrent/repeated promotions, (2) calls failover-global-cluster / promotes the secondary, (3) flips a region-role flag in SSM Parameter Store that the app reads, (4) flips the Route 53 record health state, (5) pages on-call for awareness only \u2014 never for approval. Any object storage the service uses is an S3 bucket with Cross-Region Replication (RTC) to the secondary; secrets are replicated Secrets Manager entries.\n\nSPLIT-BRAIN / FENCING \u2014 Aurora demotes the old writer as part of global failover; additionally the app checks the SSM region-role flag on a 15s refresh and returns 503 on writes if it is not the designated writer region, so a partially-alive primary cannot keep accepting writes. Failback is deliberately NOT automated \u2014 automatic failback risks flapping and re-replication races; the requirement is automatic failover only, and failback runs as a scheduled, human-initiated planned switchover using the same Lambda in planned mode.\n\nRTO BUDGET (must sum under 5 min) \u2014 detection 30s + alarm/EventBridge propagation ~10s + Aurora promotion 60-120s + DNS record flip and TTL expiry 30-60s + secondary scale-out from warm baseline 60-90s (overlapped with DB promotion) = ~3-4 min worst case, ~1 min of headroom. Client-side DNS caching is the sneaky part of that budget: all JVM clients get networkaddress.cache.ttl=30 enforced via the shared base image, and non-JVM clients are held to a 30s resolver cache; connection pools are configured with a max connection lifetime of 60s so pooled sockets to the dead region are retired rather than pinned.\n\nVERIFICATION \u2014 Monthly automated game day: AWS FIS experiment blackholes the primary's ALB/DB subnets on a schedule, a third-region synthetic canary measures wall-clock time to first successful request, and the pipeline fails the month's readiness check if measured RTO exceeds 4 minutes. An untested automatic failover is an assumption, not a capability; this is what makes the 5-minute claim auditable.\n\nOBSERVABILITY \u2014 Cross-region CloudWatch dashboard showing replication lag, per-region canary success rate, active-writer-region flag, and time-since-last-failover-drill; alarms on replication lag > 10s (RPO erosion) and on secondary warm capacity dropping below the minimum.\n\nDELIBERATE SIZING \u2014 Two regions, not three; one warm standby, not active-active; steady-state cost is roughly 1.35-1.4x single-region rather than 2x+, which is the price of the stated 5-minute automatic RTO and no more.",
+        "alternatives_considered": [
+          {
+            "option": "Pilot-light or backup-and-restore DR: keep only replicated snapshots and Terraform in the secondary region, and stand the stack up on failure.",
+            "rejected_because": "It cannot meet the stated 5-minute RTO. Restoring an Aurora cluster from snapshot alone runs 10-30+ minutes before any application capacity starts, so the very first stage of recovery blows the entire budget \u2014 the constraint forces pre-provisioned, continuously-replicated standby capacity."
+          },
+          {
+            "option": "Active-active multi-region writes (both regions serving writes, DynamoDB global tables or bidirectional replication with conflict resolution).",
+            "rejected_because": "It solves a problem this scenario doesn't have. The requirement is automatic failover within 5 minutes for an internal service, not global low-latency writes, and active-active roughly doubles steady-state cost while forcing last-writer-wins/conflict-resolution semantics into application code that currently assumes a single writer. Warm standby hits the same 5-minute target with a far smaller correctness surface."
+          },
+          {
+            "option": "AWS Global Accelerator (anycast IPs) instead of Route 53 DNS failover, to eliminate DNS TTL from the RTO path.",
+            "rejected_because": "Global Accelerator requires internet-facing endpoints; this is an internal service on private ALBs, so adopting it would mean exposing the service publicly and adding an auth/WAF layer purely to shave ~30s off a budget that already has a minute of headroom. The DNS TTL is bounded and cheap to control via client resolver settings."
+          },
+          {
+            "option": "Manual failover with a well-drilled runbook and a paging alert (human presses the button).",
+            "rejected_because": "It directly violates the 'no manual intervention required to trigger failover' constraint, and empirically page-to-human-action alone typically consumes 5-15 minutes, exceeding the total RTO before any recovery step begins."
+          },
+          {
+            "option": "Kubernetes multi-cluster with a service mesh (Istio/Linkerd) doing cross-region failover routing.",
+            "rejected_because": "Over-engineered for one internal service on ECS Fargate. It introduces a second control plane whose own multi-region availability then has to be designed and drilled \u2014 new failure modes and operational load for no improvement on the 5-minute target that Route 53 health-check failover already meets."
+          }
+        ]
+      },
+      "checks": {
+        "key_considerations_addressed": true,
+        "no_anti_patterns": true,
+        "tradeoffs_articulated": true
+      },
+      "judge_score": 0.85,
+      "judge_rationale": "The reasoning correctly identifies the critical constraint-driven design insight (warm-standby sized for RTO budget, automated, rejecting unnecessary active-active complexity for an internal service), is grounded in specific task details (5-minute RTO, automatic triggering, internal-only scope), and is internally coherent with no contradictions; the terseness means implementation details like health-check configuration and split-brain fencing aren't justified in the reasoning itself, but the design shows sound engineering that flows from the stated principle.",
+      "cost_usd": 0.122126,
+      "duration_ms": 69436,
+      "token_usage": {}
+    },
+    {
+      "test_id": "ar-05",
+      "predicted": {
+        "reasoning": "Decouple job submission from execution with a durable job record plus a broker that redelivers on worker death, so no in-flight state lives in the browser session or in worker memory.",
+        "design": "**Flow.** `POST /reports` validates input, writes a `report_jobs` row in Postgres (`id` UUID, `user_id`, `params` JSONB, `status` in queued|running|succeeded|failed|dead, `attempt`, `stage`, `checkpoint` JSONB, `lease_expires_at`, `result_s3_key`, `error`, timestamps) and enqueues `{job_id}` on an SQS standard queue in the same transaction-ish order (write row first, then enqueue; a stray enqueue for a missing row is a no-op, a row with no message gets picked up by a sweeper). Returns 202 with the job id immediately \u2014 the HTTP request never waits on the work, so closing the browser is irrelevant. Clients poll `GET /reports/{id}` for `status`/`stage`/`percent`, and on success get a short-lived S3 presigned URL for the artifact. Optional completion webhook/email for users who don't poll.\n\n**Workers.** A small ECS Fargate service (min 2 tasks for redundancy, autoscaled 2\u219210 on SQS `ApproximateNumberOfMessagesVisible` via Application Auto Scaling) long-polls SQS. Message visibility timeout is set short (120s) and a background heartbeat thread calls `ChangeMessageVisibility` every 30s while the job runs, plus updates `lease_expires_at` on the row. The message is deleted only after the artifact is durably in S3 and the row is marked `succeeded`.\n\n**Crash recovery.** If a worker is SIGKILLed, OOMs, or its Fargate task is reaped, the heartbeat stops, the visibility timeout lapses within ~2 minutes, and SQS redelivers the message \u2014 the job is retried by another worker rather than lost. Because the heartbeat is short and extended incrementally, detection is ~2 min instead of the 15+ min a single large fixed timeout would cost. A separate reaper (EventBridge-scheduled Lambda, every minute) flips rows stuck in `running` past `lease_expires_at` back to `queued` and re-enqueues, covering the case where the SQS message itself was lost.\n\n**Resume, not just restart.** Report generation is split into explicit named stages (extract \u2192 aggregate \u2192 render). Each stage writes its output to `s3://.../jobs/{job_id}/{stage}.parquet` and commits `stage`/`checkpoint` to the job row before starting the next. On redelivery the worker reads the row and skips completed stages, so a crash 8 minutes into a 10-minute report doesn't redo the first 8. Every stage must be idempotent and keyed on `job_id`, since SQS redelivery is at-least-once and two workers could briefly overlap; the S3 keys are deterministic so a duplicate write is harmless, and the final DB status update is a conditional `UPDATE ... WHERE status <> 'succeeded'`.\n\n**Poison-message containment.** `maxReceiveCount = 4` on a redrive policy to a DLQ; workers increment `attempt` and write `error` on each failure. A job that hits the DLQ is marked `dead` so `GET /reports/{id}` returns a real failure instead of leaving the user polling forever. CloudWatch alarm on DLQ depth > 0.\n\n**Observability.** Prometheus/CloudWatch metrics: queue depth, job duration histogram by stage, retries per job, DLQ depth, and worker heartbeat age. Retries and resumed-from-checkpoint counts are separate counters so a rising retry rate is distinguishable from a rising failure rate.\n\n**Sizing note.** This is deliberately one queue, one worker service, one Postgres table \u2014 no Kafka, no per-job container, no orchestration state machine. The stated problem is durability across worker crashes, not extreme throughput, and everything above is on managed services already in the stack.",
+        "alternatives_considered": [
+          {
+            "option": "Celery with a Redis broker",
+            "rejected_because": "Redis is in-memory by default, and Celery's default early-ack means a task acknowledged at dispatch is gone the instant the worker is SIGKILLed. Matching SQS's crash behavior would require enabling AOF persistence, switching to `acks_late` plus `task_reject_on_worker_lost`, and hand-rolling a visibility-timeout equivalent for tasks longer than the default \u2014 three configuration landmines to reproduce something the managed queue gives natively, on a system whose single hardest requirement is that a crashed job is never lost."
+          },
+          {
+            "option": "Postgres-only queue using SELECT ... FOR UPDATE SKIP LOCKED, no SQS",
+            "rejected_because": "Genuinely viable at this scale and one fewer component, but it means writing the lease-expiry reaper, retry counter, and dead-letter path ourselves as the *primary* recovery mechanism rather than as a backstop. The chosen design already has the job table for state; SQS contributes exactly the piece that's tedious to get right \u2014 redelivery of an unacked message after a hard worker kill \u2014 for near-zero cost at this volume."
+          },
+          {
+            "option": "AWS Step Functions (or Batch) to orchestrate each report as a state machine",
+            "rejected_because": "It would give per-stage retry and resumption natively, but a 10-minute three-stage report doesn't need a distributed state machine; it adds per-state-transition billing, a second IaC surface, and a payload-size limit that forces S3 indirection anyway \u2014 and the checkpoint-in-Postgres approach already delivers stage-level resumption for the cost of a JSONB column."
+          },
+          {
+            "option": "Keep the HTTP connection open (long-poll or WebSocket) until the report finishes",
+            "rejected_because": "Directly violates the stated requirement that users can close the browser and check back later \u2014 the job's existence would be tied to a socket, and ALB/idle timeouts would sever most 10-minute connections regardless."
+          }
+        ]
+      },
+      "checks": {
+        "key_considerations_addressed": false,
+        "no_anti_patterns": true,
+        "tradeoffs_articulated": true
+      },
+      "judge_score": 0.87,
+      "judge_rationale": "The reasoning correctly identifies the core architectural challenge (durability across worker crashes + browser-agnostic state) and proposes specific mechanisms (durable job record + broker redelivery) that directly justify the design's major choices\u2014async submission, SQS with short timeouts and heartbeat, Postgres state table, S3 checkpoints. However, the reasoning doesn't justify several non-trivial details the design includes (idempotency requirement as prerequisite to resume-from-checkpoint, Lambda reaper as backup, autoscaling policy), leaving some of the answer undergrounded\u2014though these gaps are understandable in a one-sentence summary and the design itself explains them clearly.",
+      "cost_usd": 0.09656699999999999,
+      "duration_ms": 53564,
+      "token_usage": {}
+    },
+    {
+      "test_id": "ar-06",
+      "predicted": {
+        "reasoning": "Put a CDN in front of the origin with a short s-maxage that bounds worst-case staleness at 60s, layer event-driven surrogate-key purges on publish so editors normally see changes in seconds, and rely on origin shielding plus stale-while-revalidate/stale-if-error to collapse spike traffic into a trickle of origin requests.",
+        "design": "**Edge tier (the load-bearing piece).** All homepage traffic terminates at a CDN (Fastly, or CloudFront with Origin Shield enabled); the origin's ALB accepts traffic only from the CDN (signed origin header + security-group/ACL restriction) so nobody can bypass the cache.\n\n**Freshness (\u22641 minute), two mechanisms, one of them a backstop:**\n- Homepage HTML responses carry `Cache-Control: public, s-maxage=60, stale-while-revalidate=600, stale-if-error=86400` and `Cache-Control: max-age=0, must-revalidate` for the browser (via a separate `Cache-Control`/`Surrogate-Control` split) so a visitor's own browser never pins stale HTML longer than the edge does.\n- On publish, the CMS fires a webhook that purges by surrogate key (`Surrogate-Key: home page:1234 collection:featured` set on the response) rather than by URL. Typical publish-to-visible latency is a few seconds.\n- The 60s `s-maxage` exists specifically as the backstop: if the purge webhook fails, is dropped, or the CMS is mid-deploy, the edge still refreshes within the stated 1-minute SLO with no human action. Neither mechanism alone is trusted.\n\n**Spike protection:**\n- Origin Shield / clustering gives a single mid-tier cache between the ~100s of POPs and the origin, so a global miss produces one origin fetch, not one per POP.\n- Request collapsing/coalescing at the shield means 50k concurrent misses for the same URL become one in-flight origin request.\n- `stale-while-revalidate=600` means expiry is never a cliff: the edge keeps serving the last good copy to everyone while exactly one background revalidation goes to origin. Combined with collapsing, sustained origin load for the homepage is ~1 req/min regardless of visitor volume.\n- `stale-if-error=86400` keeps the homepage up if the origin 5xxs or is being deployed.\n- Cache-key normalization: strip `utm_*`/`fbclid`/`gclid` and other tracking params, lowercase host, no `Vary: Cookie`. Without this, a viral link with per-share tracking params fragments the cache and defeats collapsing exactly when it matters most.\n\n**Keeping the HTML cacheable.** The homepage document is rendered anonymously for all visitors. Anything per-user (login state, greeting, recommendations) is fetched client-side from a small `/api/me` endpoint marked `Cache-Control: private, no-store`. This is the decision that makes a ~99% edge hit ratio possible; personalizing the HTML itself would push every request to origin and make all of the above moot.\n\n**Static assets** (JS/CSS/images) are content-hashed and served `Cache-Control: public, max-age=31536000, immutable` \u2014 no purge path needed, new build means new URL.\n\n**Origin sizing.** A modest ECS Fargate service behind the ALB (2 tasks across AZs, autoscaling on CPU with a low ceiling) plus the existing Postgres. It is deliberately not sized for viral traffic \u2014 the CDN absorbs that \u2014 but it is redundant across AZs so a task or AZ loss doesn't stall revalidation. A per-origin rate limit at the CDN caps worst-case origin RPS as a hard ceiling.\n\n**Verification/observability.** Emit CDN hit ratio, origin RPS, and 5xx to the existing Prometheus/Grafana setup. Critically, add a synthetic check that publishes a canary content change and measures publish\u2192visible-at-edge latency; that is the only thing that actually proves the 1-minute SLO rather than assuming it, and it alerts if the purge webhook silently breaks and the design quietly degrades to the 60s TTL path (or worse).",
+        "alternatives_considered": [
+          {
+            "option": "Long TTL (hours/days) with purge-on-publish as the sole invalidation mechanism",
+            "rejected_because": "It makes the 1-minute freshness requirement entirely dependent on a webhook that has no delivery guarantee \u2014 one dropped purge during a CMS deploy or a CDN API blip leaves the homepage stale for hours with no self-healing and no signal that anything is wrong. The short s-maxage costs ~1 origin request per minute and converts that silent, unbounded failure into a bounded 60s one."
+          },
+          {
+            "option": "Short TTL only (s-maxage=30-60), no purge integration at all",
+            "rejected_because": "It technically satisfies the stated SLO, but it makes every editor change wait out the full window and, more importantly, forces the TTL to be the only lever \u2014 so any future tightening of the freshness target means shrinking the TTL and proportionally increasing origin revalidation load. Surrogate-key purge decouples typical-case freshness (seconds) from origin load, which is the exact tension this scenario is about."
+          },
+          {
+            "option": "Self-hosted Varnish/nginx cache tier in front of the origin plus aggressive ECS autoscaling, no CDN",
+            "rejected_because": "A viral spike arrives in seconds while ECS task scale-out plus container start plus ALB health checks takes minutes, so the cache tier itself becomes the bottleneck and you eat full origin egress for every request. A CDN already has the capacity provisioned at hundreds of POPs and terminates traffic geographically before it ever reaches the region."
+          },
+          {
+            "option": "Edge compute (ESI / Lambda@Edge / Compute@Edge) assembling the homepage from cached fragments",
+            "rejected_because": "Over-engineered for a single homepage with no stated per-user variation \u2014 it buys partial-invalidation granularity this scenario never asked for, while adding a deploy pipeline, a debugging surface, and per-request compute cost at exactly the traffic volume where cost matters most. Client-side hydration of the one personalized widget achieves the same cacheability with none of that."
+          }
+        ]
+      },
+      "checks": {
+        "key_considerations_addressed": false,
+        "no_anti_patterns": true,
+        "tradeoffs_articulated": true
+      },
+      "judge_score": 0.88,
+      "judge_rationale": "The reasoning is internally coherent (s-maxage+purges provide defense-in-depth for freshness; origin shielding+SWR/SIE collapse spike traffic mechanically) and directly grounds each component in the stated task constraints (60s worst-case staleness satisfies the 1-minute requirement; named purge-on-publish and traffic collapsing explicitly address origin protection), though it assumes CDN/surrogate-key familiarity and doesn't spell out how SWR's background-revalidation-with-request-collapsing actually achieves the claimed traffic trickle.",
+      "cost_usd": 0.09721250000000001,
+      "duration_ms": 53853,
+      "token_usage": {}
+    },
+    {
+      "test_id": "ar-07",
+      "predicted": {
+        "reasoning": "At ~100 requests/day for 30 known users, the dominant constraint is operability by a small team, so the right answer is a single boring monolith on managed services with strong backups \u2014 reliability bought through managed durability and fast restore rather than through distributed redundancy.",
+        "design": "**Shape: one monolithic web app, one relational database, one object store.**\n\n- **Application:** a single server-rendered monolith (FastAPI + Jinja/HTMX, or Laravel if the team prefers PHP \u2014 pick the stack the team already maintains). All concerns \u2014 submission forms, approval workflow, admin, CSV/ERP export \u2014 live in one deployable. No service decomposition: 30 users and one bounded domain do not justify a network boundary between modules.\n- **Compute:** one AWS ECS Fargate service (0.25 vCPU / 0.5 GB) behind an ALB, `desired_count = 2` across two AZs in a single region. Two tasks cost roughly $15/mo total at this size and remove the deploy-window and task-crash gaps that a single task would leave; ECS replaces an unhealthy task automatically on ALB health-check failure. A single small EC2 VM with systemd would also work, but Fargate removes host patching, which is the real maintenance cost for a small team.\n- **Data:** Amazon RDS for PostgreSQL, `db.t4g.micro`, Multi-AZ **off**, with automated backups at 30-day retention and PITR enabled. Single-AZ is the deliberate choice: an internal expense tool tolerates a ~10-minute restore window, and Multi-AZ roughly doubles DB cost for availability nobody asked for. All state \u2014 reports, line items, approval history, audit log \u2014 lives here; expense data is inherently relational (report \u2192 line items \u2192 approvals \u2192 user) and the reporting/export queries are joins.\n- **Receipts:** S3 bucket, SSE-S3 encryption, versioning on, public access blocked, uploads and downloads via presigned URLs so file bytes never transit the app container. Lifecycle rule to Glacier Instant Retrieval after 1 year (receipts must be retained for tax/audit but are almost never re-read).\n- **Auth:** OIDC against the company's existing identity provider (Google Workspace / Entra ID). No password storage, no bespoke user table beyond a profile row keyed on the IdP subject; offboarding is handled by the IdP, which is the correct control for an internal tool.\n- **Async work:** none as a separate system. The only background work is notification email and monthly export; run these as a scheduled ECS task (EventBridge cron) and send transactional mail through SES. No queue broker \u2014 at this volume the inbox is the queue.\n- **Observability:** CloudWatch container logs with a 90-day retention, ALB 5xx and target-health alarms, RDS free-storage and CPU alarms, and one external uptime check on `/healthz`. Alarms page a shared team email/Slack channel. This is deliberately the CloudWatch-native stack rather than a self-hosted Prometheus/Grafana pair \u2014 a monitoring stack the team must operate is more machinery than the app it watches.\n- **Delivery:** all infrastructure in Terraform, one state file, two workspaces (staging, prod). GitHub Actions builds the image, runs tests, pushes to ECR, and does an ECS rolling deploy. DB migrations run as a one-off ECS task gated before the service update.\n- **Reliability practice that actually matters here:** a quarterly restore drill \u2014 PITR-restore prod into a scratch instance and confirm the app boots against it. For a system whose realistic failure mode is 'someone bulk-deleted last quarter's reports,' a tested restore path is worth more than any amount of redundancy.\n\n**Cost:** roughly $60\u201380/month all-in (ALB ~$18 is the single largest line item; consider dropping the ALB for an ECS-managed public IP + Cloudflare if that matters).\n\n**Explicitly not included, and why:** no Kubernetes, no message broker, no microservices, no multi-region, no caching layer, no read replica, no CDN. At <100 req/day a single container is running at effectively zero utilization; every one of those components would add a failure mode and an on-call surface without touching a stated requirement.",
+        "alternatives_considered": [
+          {
+            "option": "Buy an off-the-shelf SaaS expense product (Expensify, Ramp, Zoho Expense) instead of building anything",
+            "rejected_because": "This is the option I'd normally take at 30 seats, and it should be re-checked before writing code \u2014 but the scenario specifies an internal tool the team will operate, which implies company-specific approval chains and an export into their existing finance system. Those integrations are exactly where per-seat SaaS forces either a paid higher tier or a custom middleware service, at which point the team is operating a system anyway plus paying ~$10-15/seat/month."
+          },
+          {
+            "option": "EKS or a self-managed Kubernetes cluster running the same app",
+            "rejected_because": "The EKS control plane alone is ~$73/month, more than the entire proposed stack, and it obligates a 30-person company to track quarterly K8s version upgrades and node AMI patching to run one container serving four requests per hour. The operational burden lands squarely against the stated 'easy for a small team to operate' requirement."
+          },
+          {
+            "option": "Serverless: API Gateway + Lambda + DynamoDB",
+            "rejected_because": "Compute cost would round to zero at this traffic, which is genuinely attractive \u2014 but expense reporting is a join-heavy, ad-hoc-query workload (spend by department by quarter, unapproved reports older than N days, year-end export), and DynamoDB forces those into either pre-declared access patterns with GSIs or a second analytics pipeline. Postgres answers all of them with SQL today, and at 100 req/day there is no scaling pressure that would justify accepting that modeling constraint."
+          },
+          {
+            "option": "Decompose into separate submission, approval, and reporting services communicating over a queue",
+            "rejected_because": "It adds inter-service failure modes, distributed transactions across the approval state machine, and three deploy pipelines to a domain small enough that the whole schema fits on one screen. There is no independent scaling or independent-team-ownership pressure here that service boundaries would relieve."
+          },
+          {
+            "option": "A shared Google Sheet plus a Google Form and Apps Script",
+            "rejected_because": "Cheapest and fastest option, and worth a hard look \u2014 rejected because there is no per-row access control (any submitter can read every colleague's salary-adjacent expenses), no tamper-evident approval audit trail, and receipt attachments end up scattered across Drive. Expense approval is exactly the workload where the audit trail is the product."
+          },
+          {
+            "option": "Multi-AZ RDS and a read replica for the database tier",
+            "rejected_because": "Roughly doubles the largest recurring cost line to cut failover from ~10 minutes of automated restore to ~60 seconds, for an internal tool with no stated availability target where a 10-minute outage costs the company nothing measurable. Revisit if the tool ever becomes the system of record for real-time reimbursement payouts."
+          }
+        ]
+      },
+      "checks": {
+        "key_considerations_addressed": true,
+        "no_anti_patterns": false,
+        "tradeoffs_articulated": true
+      },
+      "judge_score": 0.87,
+      "judge_rationale": "The reasoning correctly identifies operability as the dominant constraint from the task (\"easy for a small team to operate\") and directly ties it to specific architectural choices (monolith, managed services, backups over redundancy). The design answer delivers on this reasoning: FastAPI/Laravel monolith, ECS Fargate (not self-managed K8s), RDS with PITR (tested restore over Multi-AZ), and explicitly rejects distributed systems. The constraint-to-design chain is tight and specific to this scenario's 30-user, <100 req/day, small-team-ops profile, not generic.",
+      "cost_usd": 0.098451,
+      "duration_ms": 55700,
+      "token_usage": {}
+    },
+    {
+      "test_id": "ar-08",
+      "predicted": {
+        "reasoning": "The only reliable way to satisfy PCI-DSS here is to never let a raw card number touch our infrastructure \u2014 collect cards client-side directly into a PCI Level 1 processor's vault and persist only opaque tokens, which keeps our systems out of PCI scope (SAQ A) while still supporting merchant-initiated recurring charges.",
+        "design": "**Card capture (never touches our servers).** The subscription signup page renders the processor's hosted fields / iframe (e.g. Stripe Elements, Adyen Components, Braintree Hosted Fields). The PAN, CVV, and expiry are POSTed from the browser directly to the processor's domain over TLS 1.2+; our backend receives only a single-use `setup_intent`/payment-method token. Because our servers, network, and application never receive or transmit cardholder data, our validation scope collapses to SAQ A (script-integrity + TLS requirements on the payment page) rather than SAQ D.\n\n**What we persist.** In our existing Postgres, a `payment_methods` table stores: `processor_customer_id`, `processor_payment_method_token`, `card_brand`, `last4`, `exp_month`, `exp_year`, `network_transaction_id` (from the initial cardholder-initiated auth), `is_default`, plus audit columns. `last4`/brand/expiry are permitted for display and dunning UX; no PAN, no CVV, no track data, no encrypted-PAN column anywhere \u2014 nothing to encrypt because nothing sensitive is stored. Explicit column lists in all queries; index on `(customer_id, is_default)`.\n\n**Recurring charge path.** A billing scheduler (cron/ECS scheduled task) selects due subscriptions and calls the processor's charge API with the stored token, flagged as a merchant-initiated transaction with stored-credential metadata and the original `network_transaction_id` (this is what keeps MIT auth rates high and satisfies scheme stored-credential rules). Every charge call carries an idempotency key derived from `subscription_id + billing_period` so a retried worker can't double-charge. The initial card-on-file setup runs 3DS/SCA as a cardholder-initiated transaction so subsequent MITs are exempt.\n\n**Async results and dunning.** Charge outcomes arrive via signed processor webhooks (signature verified, replayed-event-safe via event-id dedupe table) rather than trusting the synchronous response alone. Failed charges enter a bounded retry schedule (e.g. day 1/3/7) with a hard stop and a subscription state machine (`active \u2192 past_due \u2192 canceled`). Expiring cards trigger a re-collection email; we also subscribe to the processor's account-updater events so reissued cards refresh the token without customer action.\n\n**Controls that still apply to us even in SAQ A scope.** Processor API secret keys live in AWS Secrets Manager with rotation, injected as ECS task secrets, never in env files or repo. Distinct restricted keys per environment; the billing worker's key is the only one with charge permission. Structured logging with a field deny-list plus a CI test asserting no card-shaped digit sequence can be logged (defence in depth \u2014 the token is not sensitive, but this prevents regression if anyone ever proxies card data). Access to the processor dashboard is SSO + MFA, least-privilege roles, with an access review each quarter. Application audit log records who viewed or changed a stored payment method. Prometheus/CloudWatch metrics on charge success rate, webhook lag, retry queue depth, and token-not-found errors; alert on success-rate drop, which is the earliest signal of a token or key problem.\n\n**Compliance artifacts.** Annual SAQ A self-assessment plus the processor's AOC on file; quarterly ASV scan of the public payment page domain; documented cardholder-data flow diagram showing the browser\u2192processor path with our backend explicitly outside the CDE. Because we never store or transmit PAN, no network segmentation, HSM, or key-ceremony program is needed.\n\n**Portability.** Tokens are processor-specific, so vendor migration requires a processor-assisted encrypted PAN export directly between processors (a supported, audited path) \u2014 we accept that coupling rather than building a vault to avoid it, and record it as a known constraint.",
+        "alternatives_considered": [
+          {
+            "option": "Operate our own card vault: store PANs in our database under AWS KMS envelope encryption with a dedicated encryption service, and pursue PCI DSS Level 1 validation ourselves.",
+            "rejected_because": "Encrypting the PAN does not remove it from PCI scope \u2014 it pulls the entire application and network into SAQ D / Report on Compliance territory: segmented CDE, documented key-management ceremonies with split knowledge and dual control, annual QSA audit, quarterly internal and external scans, and annual penetration testing. That is a recurring six-figure compliance program plus a permanent breach liability, bought to avoid a per-transaction processor fee, and the scenario states no requirement to be processor-independent or to route across multiple acquirers."
+          },
+          {
+            "option": "Server-side card collection: the browser POSTs the card number to our API, which immediately forwards it to the processor for tokenization and never persists it.",
+            "rejected_because": "Even though nothing is stored, the card data transits our web tier, load balancer, application logs, and memory \u2014 that makes our systems part of the cardholder data environment and forces SAQ D instead of SAQ A. We would inherit the full control set (network segmentation, file-integrity monitoring, pen testing) for zero functional gain, since hosted fields return the same token."
+          },
+          {
+            "option": "Store only a one-way hash of the PAN alongside the processor token so we can deduplicate cards across accounts without a vault.",
+            "rejected_because": "A PAN hash is still cardholder data under PCI DSS and, given the small entropy of a card number (BIN + Luhn constrains the space to a brute-forceable size), an unsalted hash is trivially reversible \u2014 it reintroduces PCI scope and breach exposure for a fraud-dedup feature the scenario never asks for. The processor's own fingerprint value on the payment-method object provides the same dedup signal with no scope impact."
+          },
+          {
+            "option": "Build a processor-agnostic abstraction layer with network tokens from the card schemes directly, so we can switch or multi-home acquirers later.",
+            "rejected_because": "Direct scheme network-token provisioning requires being a token requestor, which means PCI Level 1 validation again, and the scenario describes a single recurring-subscription billing need with no stated multi-acquirer, cross-border routing, or auth-rate optimization requirement. This is solution sizing well beyond the problem; the pragmatic migration path (processor-to-processor encrypted PAN export) covers the realistic switching scenario."
+          }
+        ]
+      },
+      "checks": {
+        "key_considerations_addressed": true,
+        "no_anti_patterns": true,
+        "tradeoffs_articulated": true
+      },
+      "judge_score": 0.93,
+      "judge_rationale": "The reasoning is tightly grounded in domain-specific details (SAQ A scope, processor-hosted fields, MIT metadata, opaque tokens) and directly justifies every component of the answer (client-side collection \u2192 no PAN on our systems, persistent tokens \u2192 SAQ A compliance, MIT charge path \u2192 recurring subscriptions), with no contradictions or unsupported claims; only minor quibble is the \"only reliable way\" framing when the answer itself enumerates rejected alternatives that are technically possible, though admittedly inferior given the constraints.",
+      "cost_usd": 0.0877485,
+      "duration_ms": 47545,
+      "token_usage": {}
+    },
+    {
+      "test_id": "ar-09",
+      "predicted": {
+        "reasoning": "Meet 99.99% by eliminating every layer's single point of failure within one region using N+1 redundancy across three availability zones with automated failover, plus a warm cross-region standby for regional loss, while making the payment path idempotent and queue-buffered so upstream processor failures degrade rather than take the service down.",
+        "design": "**Topology.** Active-active across 3 availability zones in one primary region, with a warm standby in a second region. Every tier is replicated; nothing in the request path depends on one host, one zone, or one process.\n\n**Edge/routing.** Route 53 health-checked DNS (60s TTL) in front of a zone-redundant Application Load Balancer. The ALB itself spans all 3 AZs with nodes in each; health checks eject unhealthy targets in seconds. NAT gateways are provisioned per-AZ (one per zone, not shared) so a zone outage can't strand egress for the survivors.\n\n**Compute.** The payment API is stateless and runs as ECS Fargate tasks: minimum 6 replicas spread evenly across the 3 AZs, autoscaled on RPS and p95 latency. Capacity is provisioned N+1 at the zone level \u2014 3 AZs' worth of tasks sized so that losing an entire AZ leaves enough headroom to serve peak traffic without scaling lag. Separate readiness (deep: DB write check, dependency check) and liveness (shallow: process alive) probes, so a slow dependency doesn't cause the orchestrator to kill every healthy replica at once.\n\n**Data.** Aurora PostgreSQL cluster: one writer plus two readers, each in a different AZ, synchronous multi-AZ storage replication with automatic writer failover (typically under 60s) and no manual promotion step. Point-in-time recovery enabled. A cross-region Aurora replica in the standby region receives asynchronous replication for regional disaster recovery. Application connection pools use the cluster endpoint and are configured for fast DNS re-resolution so a failover reconnects rather than hanging on a dead writer.\n\n**Correctness under failure \u2014 the part that makes retries safe.** Every payment request carries a client-supplied idempotency key, persisted in the same transaction as the ledger row with a unique constraint. Any retry \u2014 from the client, the load balancer, or a replayed queue message \u2014 returns the original result instead of charging twice. Payment state transitions are written as an append-only ledger; downstream side effects (webhooks, settlement, notifications) are published via the transactional outbox pattern and drained to SQS, so a crash between \"charged\" and \"notified\" is recoverable rather than lost.\n\n**Dependency isolation.** Calls to the upstream card acquirer go through a circuit breaker with bounded timeouts and a bulkheaded connection pool. At least two acquirer/PSP integrations are configured so authorization traffic can be shifted if the primary processor degrades \u2014 a processor outage becomes elevated latency and a failover, not our outage. Non-critical work (capture, settlement, reconciliation, webhooks) is queued on SQS with dead-letter queues and consumed by workers that are replicated across AZs; if the queue backs up, authorization still succeeds.\n\n**Caching/session.** No user session state is held in process memory. If ElastiCache is used for rate limiting or token caching, it runs as a replicated cluster with automatic failover across AZs, and the API is written to degrade to the database rather than fail if the cache is unreachable.\n\n**Deployments and migrations.** Rolling deploys with a canary step (5% of tasks) and automatic rollback on error-rate/latency regression, so releases never require downtime. Schema changes follow expand/contract: additive migration, deploy code that tolerates both shapes, backfill, then drop \u2014 no locking DDL against the live writer, no maintenance windows.\n\n**Observability and validation of the SLO.** Prometheus/Grafana plus CloudWatch: request success rate, p99 latency, authorization success by processor, replica count per AZ, queue depth and DLQ size, replication lag. An explicit 99.99% availability SLO with error-budget alerting, backed by synthetic probes hitting the public endpoint from multiple regions so we detect edge failures the internal metrics can't see. Quarterly game days that actually terminate an AZ's tasks and force a database failover \u2014 availability claims that have never been exercised are assumptions, not guarantees.\n\n**Regional failure.** The standby region runs a scaled-down but always-warm copy of the service against the cross-region replica. Failover is a deliberate, runbook-driven promotion (replica promoted to writer, Route 53 health check flips) with an RTO of ~15 minutes and RPO measured in seconds \u2014 accepted because regional loss is rare enough to fit inside a 52-minute annual budget, whereas zone and instance loss are not.",
+        "alternatives_considered": [
+          {
+            "option": "Multi-region active-active with writes accepted in both regions",
+            "rejected_because": "Concurrent writes to the ledger and idempotency table in two regions requires either cross-region consensus (adding 60-100ms to every authorization) or conflict resolution after the fact, and an unresolved conflict on a payment record means a double charge or a lost capture. The failure mode is worse than the downtime it prevents, and 99.99% (~52 min/year) is already achievable with multi-AZ automated failover; active-active writes buy the next nine at a correctness cost payments can't absorb."
+          },
+          {
+            "option": "Single-AZ deployment with vertical scaling and restore-from-backup as the recovery plan",
+            "rejected_because": "A single availability zone outage lasting even one hour consumes the entire annual error budget on its own, and restoring a database from backup is a 20-60 minute operation before traffic can resume. This directly violates the stated no-single-point-of-failure requirement at the zone level."
+          },
+          {
+            "option": "Self-managed PostgreSQL on EC2 with Patroni/etcd for HA",
+            "rejected_because": "It would work, but it makes correct leader election and fencing our problem \u2014 a split-brain during failover on a payment ledger is a data-integrity incident, not just downtime. Aurora's managed multi-AZ failover gives sub-60s automatic promotion without a team operating a consensus cluster, and the marginal cost is far below the revenue exposure the business already stated."
+          },
+          {
+            "option": "Synchronous inline calls to the card processor with no queue or circuit breaker",
+            "rejected_because": "It's simpler and lower-latency, but it makes our availability strictly the product of ours and the processor's \u2014 a 20-minute PSP degradation becomes 20 minutes of our downtime, blowing a third of the annual budget on a dependency we don't control."
+          },
+          {
+            "option": "Kubernetes (EKS) with a service mesh instead of ECS Fargate",
+            "rejected_because": "It offers finer-grained traffic control, but adds a control plane, mesh sidecars, and node-group management as new operational surface for a service whose availability need is met by ALB health checks plus AZ-spread replicas. The added moving parts are more likely to cause an incident here than to prevent one; this is a redundancy problem, not an orchestration-sophistication problem."
+          }
+        ]
+      },
+      "checks": {
+        "key_considerations_addressed": true,
+        "no_anti_patterns": true,
+        "tradeoffs_articulated": true
+      },
+      "judge_score": 0.86,
+      "judge_rationale": "The reasoning is internally coherent\u2014each component (N+1 redundancy, automated failover, warm standby, idempotency, circuit-breaking) logically supports the 99.99% goal without contradiction\u2014and is grounded in specific task details (the stated uptime percentage, payment-domain idempotency requirements, third-party processor dependency) rather than generic HA advice; however, it slightly overstates 'eliminating every layer's single point of failure' when the design actually reduces SPOFs to acceptable scopes via failover, and omits that observability/SLO validation is necessary to claim 99.99% is met.",
+      "cost_usd": 0.103438,
+      "duration_ms": 54194,
+      "token_usage": {}
+    },
+    {
+      "test_id": "ar-10",
+      "predicted": {
+        "reasoning": "At ~200 users the log volume is a few GB/month, so the dominant cost is operating the system rather than storing the data \u2014 the right answer is a managed log service with a hard 30-day retention setting and explicit budget guardrails, not a cluster.",
+        "design": "Pipeline: app emits structured single-line JSON to stdout (level, ts, request_id, user_id, event, latency_ms; PII redacted at the log-call site) \u2192 container runtime's awslogs driver \u2192 a single CloudWatch Logs log group per service. No sidecar agent, no queue, no broker.\n\nRetention: the log group is declared in Terraform with `retention_in_days = 30`. That is the entire retention mechanism \u2014 CloudWatch expires events itself, so there is no cron/lifecycle job to fail silently and no way for old data to linger past the stated window.\n\nQuery path: CloudWatch Logs Insights for interactive queries (filter/parse/stats over the 30-day window, seconds-to-minutes latency), with a handful of saved queries checked into the repo for the common cases (errors by endpoint, one user's request trail by user_id, p95 latency by route). Grafana points at CloudWatch as a datasource so dashboards live alongside existing panels instead of a bespoke UI.\n\nAlerting/metrics: CloudWatch metric filters turn ERROR/exception patterns into a metric, with an alarm \u2192 SNS \u2192 email/Slack. Aggregate metrics stay in the existing Prometheus/Grafana setup; logs are for after-the-fact investigation, not as a metrics substitute.\n\nBudget enforcement (the constraint that actually needs engineering, not just estimating): (1) sizing \u2014 assume 200 users \u00d7 ~100 events/day at ~1 KB plus platform logs \u2248 1\u20133 GB/month; at $0.50/GB ingest, $0.03/GB-month storage, and $0.005/GB scanned by Insights that lands around $5\u201315/month, i.e. roughly 5\u20138% of the ceiling, leaving headroom for a 10\u00d7 volume surprise; (2) an AWS Budgets alarm at $100 and $160 monthly actual/forecast so a regression is caught mid-month rather than on the invoice; (3) a CloudWatch alarm on the log group's IncomingBytes so a debug-log flood pages before it bills; (4) log level and a debug-sampling rate read from an env var, so throttling a noisy deploy is a config change, not a code release. The failure mode for per-GB log pricing is a runaway loop emitting millions of lines, and those four items are what keep that from silently eating the $200.\n\nSingle region, single log group per service, no replication: the scenario states no availability or durability target beyond \"queryable for 30 days,\" and CloudWatch Logs is already a regional managed service with the awslogs driver buffering across brief API blips. If a future requirement adds >30-day analytics, the extension point is a subscription filter \u2192 Firehose \u2192 S3 Parquet queried with DuckDB/Athena \u2014 deliberately not built now, since nothing in the stated requirements needs it.",
+        "alternatives_considered": [
+          {
+            "option": "Self-managed ELK or Amazon OpenSearch Service for indexed log search",
+            "rejected_because": "The smallest genuinely usable managed OpenSearch domain runs roughly $140+/month before EBS, consuming most of the $200 ceiling with no headroom for growth \u2014 and that's to index 1\u20133 GB. Single-node self-hosting on EC2 is cheaper (~$30) but loses all logs on instance failure and adds shard/ISM-policy tuning work that dwarfs the data volume; the cost here is operating the cluster, not storing the logs."
+          },
+          {
+            "option": "Datadog (or similar SaaS log platform) log ingestion",
+            "rejected_because": "Best UX of the options, but the pricing model is the wrong shape for this constraint: per-host infrastructure billing (~$15\u201323/host/month) plus per-GB ingest/indexing means the bill scales with container/task count, not log volume. Scaling out Fargate tasks for an unrelated traffic reason would push through a hard $200 ceiling without anyone changing the logging system."
+          },
+          {
+            "option": "Write logs to a table in the existing PostgreSQL/RDS instance with a 30-day partition drop",
+            "rejected_because": "Zero new infrastructure and effectively free, but it puts high-volume append traffic on the same instance serving product OLTP queries, and a log-volume spike can fill the application database's disk and take the product down. Unacceptable blast radius for a debugging convenience, plus it needs ongoing partition maintenance that CloudWatch's retention setting handles for free."
+          },
+          {
+            "option": "S3 Parquet via Firehose, queried with Athena/DuckDB, skipping CloudWatch entirely",
+            "rejected_because": "Cheapest possible storage (cents per month), but it requires building and owning a batch path \u2014 Firehose buffering, date partitioning, small-file compaction, schema drift handling \u2014 and adds 5\u201315 minutes of ingest latency, which is exactly the wrong tradeoff for tailing errors during a live incident. It saves under $10/month against a $200 budget in exchange for real ETL surface area, so it's kept as the future extension point for >30-day retention rather than the primary store."
+          },
+          {
+            "option": "Grafana Loki self-hosted on a small VM with S3 chunk storage",
+            "rejected_because": "Fits the budget and fits the existing Grafana setup, but it introduces a component the team must patch, upgrade, and keep alive \u2014 and if that single VM is down during an incident, the logs needed to diagnose the incident are unreachable. At 1\u20133 GB/month the managed option costs about the same and has no node to babysit."
+          }
+        ]
+      },
+      "checks": {
+        "key_considerations_addressed": true,
+        "no_anti_patterns": true,
+        "tradeoffs_articulated": true
+      },
+      "judge_score": 0.75,
+      "judge_rationale": "The reasoning correctly identifies the core trade-off (managed > self-managed at this scale) and the answer is heavily grounded in specific constraints (200 users \u2192 1-3 GB/month, $200 budget ceiling with 5-8% utilization, 30-day retention mechanism), but the framing is slightly off: the cost story isn't actually about 'operating cost dominance' (CloudWatch is ~$5-15/month total, mostly ingest, negligible storage), it's about keeping operational burden low when all costs are already minimal \u2014 the reasoning gestures at the right conclusion without quite articulating what makes it correct at this particular scale.",
+      "cost_usd": 0.09981349999999999,
+      "duration_ms": 52064,
+      "token_usage": {}
+    },
+    {
+      "test_id": "ar-11",
+      "predicted": {},
+      "checks": {
+        "key_considerations_addressed": false,
+        "no_anti_patterns": true,
+        "tradeoffs_articulated": false
+      },
+      "judge_score": 0.0,
+      "judge_rationale": "skipped judging: model output failed to parse (Expecting ',' delimiter: line 1 column 3718 (char 3717))",
+      "cost_usd": 0.112412,
+      "duration_ms": 62901,
+      "token_usage": {}
+    },
+    {
+      "test_id": "ar-12",
+      "predicted": {
+        "reasoning": "Single-region, multi-AZ managed AWS stack sized to the stated volume, with all billing writes and read-after-write-sensitive reads pinned to a synchronously-replicated Postgres primary, a durable SQS ingest path so a failover never drops revenue-bearing events, and an explicitly-scoped set of eventually-consistent read paths served from a replica.",
+        "design": "TOPOLOGY (one region, three AZs; no Kubernetes, no microservices, no multi-region):\n\n- Edge: ALB across 3 AZs (managed, inherently redundant) in front of an ECS Fargate service running the billing API. Minimum 3 tasks with an AZ spread placement constraint, so losing an AZ leaves 2 healthy tasks; autoscale on ALB request count. A second, smaller Fargate service runs the async worker (invoice generation, dunning retries, webhook delivery).\n- Data: RDS for PostgreSQL, Multi-AZ *cluster* deployment (writer + two readable standbys, synchronous commit). This is the core no-SPOF decision: failover is automatic and typically ~35s, versus ~60-120s for the older Multi-AZ instance deployment. 99.99% = 4.4 min/month of error budget, so one unplanned failover must not consume it all.\n- Durable ingest so failover \u2260 lost revenue: every revenue-bearing event (payment-processor webhook, subscription state change, usage record) is written to SQS (FIFO for per-subscription ordering) at the edge before any DB work. The API returns 202 for these. If the writer is failing over for 35s, the queue absorbs it and the worker drains on recovery. Interactive reads degrade during that window; charge capture does not. Dead-letter queue + CloudWatch alarm on DLQ depth.\n- Exactly-once effects: mandatory Idempotency-Key on all mutating endpoints, stored in a unique-indexed `idempotency_keys` table in the same transaction as the effect. Outbox table + worker for all outbound calls (processor charges, emails) so a crash between commit and side effect is recoverable, and the processor's own idempotency keys are derived from the outbox row id.\n- No card data stored. PANs are tokenized at the processor (Stripe/Adyen); we persist tokens and last4 only, which keeps PCI scope at SAQ-A and off this budget entirely.\n- Deploys: rolling ECS deploys with circuit breaker + auto-rollback; DB migrations expand/contract only (no destructive step in the same release as the code that stops using a column), because a failed migration is the most realistic way to burn the whole annual error budget.\n\nCONSISTENCY MODEL (explicit split, per requirement 3):\n\nStrong / read-your-writes \u2014 always the primary:\n- invoice and payment record reads immediately after a write (invoice detail, payment confirmation page)\n- subscription state used to authorize entitlement or compute a charge\n- balance, credit, and proration calculations\n- anything read inside a transaction that will write\nImplementation: reads are routed by endpoint class, not by connection pool luck. On top of that, after any write the API sets a short-lived (30s) per-user marker in the session/JWT; any read for that user inside the window is forced to the primary regardless of endpoint class. This closes the \"user writes, then hits a nominally-cheap read path\" hole that pure endpoint-class routing leaves open.\n\nEventually consistent \u2014 async read replica (single AZ, small instance):\n- historical invoice lists and PDF/archive lookups older than the current period\n- usage/analytics dashboards and admin reporting\n- CSV exports and finance reconciliation queries\nWhat you are trading away, concretely: replica lag is normally sub-second but rises to seconds during the monthly invoice run \u2014 exactly when the replica matters most. A customer who pays an invoice and immediately reloads the *invoice list* may see the old status for a few seconds, while the invoice *detail* page (primary-routed) shows it paid. That inconsistency is visible and needs a UI decision, not just an infra one. Mitigations kept cheap: expose `pg_last_xact_replay_timestamp()` as a lag metric with an alarm at 5s, and have the replica-routed data layer fail over to the primary when measured lag exceeds threshold \u2014 correctness degrades to cost, not to wrong numbers. Note the replica does *not* save money; it adds ~$35/mo. What it buys is keeping the writer on a t4g.medium through the monthly invoicing burst instead of upsizing the writer *and its two standbys* (3x the cost of one replica) to absorb reporting load.\n\nBUDGET (on-demand, us-east-1, monthly):\n- ALB: ~$22\n- ECS Fargate, 3 API tasks (0.5 vCPU/1GB) + 1 worker (0.25/0.5): ~$54\n- RDS Postgres Multi-AZ cluster, db.t4g.medium + 100GB gp3: ~$120 (~$85 on a 1-yr no-upfront reservation)\n- Read replica db.t4g.small + storage: ~$35\n- SQS + Secrets Manager: ~$4\n- VPC interface endpoints for SQS/Secrets/ECR (deliberately instead of NAT gateways, which would be ~$70/mo for 2 AZs): ~$30\n- S3 (invoice PDFs, backups, ALB logs) + CloudWatch logs/metrics/alarms: ~$35\nTotal ~$300/mo, ~40% under the $500 ceiling. The headroom is intentional: it absorbs a writer instance-class bump and the reservation is the lever if volume grows before revenue does.\n\nOBSERVABILITY / VERIFYING THE SLO: RED metrics per endpoint to CloudWatch, plus four alarms that map to the actual failure modes \u2014 DLQ depth > 0, replica lag > 5s, outbox rows unprocessed > 5 min, and failed-charge rate deviation. A quarterly game day that forces an RDS failover during a synthetic invoice run is the only way to know the 35s number holds; without it, 99.99% is an aspiration, not a design property.",
+        "alternatives_considered": [
+          {
+            "option": "Multi-region active-active on DynamoDB global tables (or Aurora Global Database) for higher availability",
+            "rejected_because": "Two concrete blockers. Cost: it roughly doubles the compute/data footprint plus cross-region replication charges, landing well past the $500 ceiling. Correctness: global tables resolve write conflicts last-writer-wins, which is directly incompatible with the stated strong read-after-write requirement on billing records \u2014 two concurrent charge writes to the same subscription can silently drop one. It also solves the wrong risk: the dominant realistic failure here is an AZ or instance loss, which Multi-AZ already covers within the error budget."
+          },
+          {
+            "option": "Serverless: API Gateway + Lambda + Aurora Serverless v2, scale-to-near-zero",
+            "rejected_because": "Billing traffic is not the bursty-idle shape serverless wins on \u2014 it's low steady traffic plus one enormous monthly invoicing run. That run spikes Lambda concurrency into the thousands against a Postgres connection limit, forcing RDS Proxy (~$11+/mo and another component in the write path), and the invoicing job itself exceeds Lambda's 15-minute ceiling so it needs Step Functions decomposition. That's more moving parts in the revenue path for roughly $30/mo of savings against a budget that already has $200 of headroom."
+          },
+          {
+            "option": "Single-AZ RDS with automated snapshots and a documented restore runbook (the cheapest option that 'has backups')",
+            "rejected_because": "An AZ or instance failure means a snapshot restore of 20+ minutes before writes resume \u2014 roughly 300x the 4.4 min/month that 99.99% permits, from a single incident. It fails the no-SPOF requirement outright, and the ~$60/mo it saves is money the budget doesn't need saved."
+          },
+          {
+            "option": "Amazon MSK / Kafka as the event backbone instead of SQS",
+            "rejected_because": "A minimum production MSK cluster is three brokers at roughly $150-200/mo \u2014 40% of the entire budget \u2014 to handle a volume SQS serves for under $5. Kafka's partition-ordering and replay strengths aren't needed here; SQS FIFO already gives per-subscription ordering, and the outbox table provides replay."
+          },
+          {
+            "option": "Route all reads to the primary and drop the read replica entirely (simplest, single consistency model)",
+            "rejected_because": "It's the right default and I considered keeping it, but reporting and export queries land on the writer during the monthly invoice run \u2014 the one hour when write latency directly affects revenue capture. Absorbing that means upsizing the writer, which in a Multi-AZ cluster means paying for the upsize three times (writer + two standbys), versus ~$35 for one small replica. The consistency cost is bounded because the read split is enumerated by endpoint class and backstopped by the post-write primary-pinning window."
+          }
+        ]
+      },
+      "checks": {
+        "key_considerations_addressed": true,
+        "no_anti_patterns": true,
+        "tradeoffs_articulated": true
+      },
+      "judge_score": 0.87,
+      "judge_rationale": "Each clause is grounded in a specific task constraint: single-region follows from the $500/mo budget (multi-region rejected in alternatives with cost math), multi-AZ from the no-SPOF requirement, SQS ingest from revenue-loss risk, and the explicit consistency split from requirement 3's stated openness to tradeoffs\u2014the reasoning is task-specific and predictive of the design, but omits some important mechanisms (idempotency keys, outbox table) that while present in the full answer are absent from the one-sentence summary.",
+      "cost_usd": 0.15563900000000003,
+      "duration_ms": 84085,
+      "token_usage": {}
+    }
+  ]
+}

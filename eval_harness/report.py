@@ -8,14 +8,21 @@ RUNS_DIR = Path(__file__).parent.parent / "runs"
 
 
 def build_summary(
-    prompt_version: str, model: str, results: list[ScoredResult], provider: str = "claude"
+    prompt_version: str, model: str, results: list[ScoredResult], provider: str = "claude", samples_per_case: int = 1
 ) -> RunSummary:
+    """check_accuracies/fully_correct_rate/avg_judge_score are plain means
+    over `results` regardless of samples_per_case - with N samples per case,
+    `results` holds N ScoredResults per test_id (see scorers.score_all), so
+    these means already equal the average per-case pass rate across samples;
+    no separate formula needed. total_cases stays a distinct case count
+    (not len(results), which would double-count samples)."""
     n = len(results) or 1
     check_names = results[0].checks.keys() if results else []
+    total_cases = len({r.test_id for r in results}) if samples_per_case > 1 else len(results)
     return RunSummary(
         prompt_version=prompt_version,
         model=model,
-        total_cases=len(results),
+        total_cases=total_cases,
         check_accuracies={name: sum(r.checks[name] for r in results) / n for name in check_names},
         fully_correct_rate=sum(r.fully_correct for r in results) / n,
         avg_judge_score=sum(r.judge_score for r in results) / n,
@@ -23,7 +30,31 @@ def build_summary(
         total_tokens=sum(r.token_usage.get("total_tokens", 0) for r in results),
         results=results,
         provider=provider,
+        samples_per_case=samples_per_case,
     )
+
+
+def per_case_pass_rates(summary: RunSummary) -> dict[str, dict]:
+    """Groups a multi-sample run's flat `results` list back up by test_id -
+    only meaningful when samples_per_case > 1. Returns, per case, the
+    fraction of samples that were fully correct and the fraction passing
+    each individual check, so a case that's genuinely unstable (e.g. 3/5
+    samples pass) is visible as a rate instead of collapsing to a single
+    pass/fail that depends on which sample happened to run."""
+    by_case: dict[str, list[ScoredResult]] = {}
+    for r in summary.results:
+        by_case.setdefault(r.test_id, []).append(r)
+
+    out = {}
+    for test_id, samples in by_case.items():
+        n = len(samples)
+        check_names = samples[0].checks.keys()
+        out[test_id] = {
+            "n_samples": n,
+            "fully_correct_rate": sum(s.fully_correct for s in samples) / n,
+            "check_pass_rates": {name: sum(s.checks[name] for s in samples) / n for name in check_names},
+        }
+    return out
 
 
 def _run_key(prompt_version: str, model: str) -> str:
@@ -45,6 +76,7 @@ def save_run(summary: RunSummary) -> Path:
         "avg_judge_score": summary.avg_judge_score,
         "total_cost_usd": summary.total_cost_usd,
         "total_tokens": summary.total_tokens,
+        "samples_per_case": summary.samples_per_case,
         "results": [
             {
                 "test_id": r.test_id,
@@ -95,6 +127,7 @@ def find_previous_run(prompt_version: str, model: str, before: Path | None = Non
         # .get(), not [] - run files saved before the provider field existed
         # (see runs/ history predating Codex support) don't have this key.
         provider=data.get("provider", "claude"),
+        samples_per_case=data.get("samples_per_case", 1),
     )
 
 
@@ -107,7 +140,8 @@ def _fmt_delta(new: float, old: float) -> str:
 
 def print_report(summary: RunSummary, previous: RunSummary | None = None) -> None:
     print()
-    print(f"=== {summary.prompt_version} / {summary.provider}/{summary.model} ({summary.total_cases} cases) ===")
+    samples_note = f", {summary.samples_per_case} samples/case" if summary.samples_per_case > 1 else ""
+    print(f"=== {summary.prompt_version} / {summary.provider}/{summary.model} ({summary.total_cases} cases{samples_note}) ===")
     for name, value in summary.check_accuracies.items():
         label = f"{name} accuracy: "
         prev_value = previous.check_accuracies.get(name) if previous else None
@@ -125,10 +159,21 @@ def print_report(summary: RunSummary, previous: RunSummary | None = None) -> Non
     if summary.provider == "codex":
         print(f"total tokens:         {summary.total_tokens:,}")
 
-    failures = [r for r in summary.results if not r.fully_correct]
-    if failures:
-        print(f"\n{len(failures)} case(s) missed:")
-        for r in failures:
-            failed_checks = [name for name, ok in r.checks.items() if not ok]
-            print(f"  - {r.test_id}: failed {failed_checks} (predicted={r.predicted}) (judge coherence {r.judge_score:.2f})")
+    if summary.samples_per_case > 1:
+        print(f"\nper-case pass rate ({summary.samples_per_case} samples each):")
+        for test_id, stats in sorted(per_case_pass_rates(summary).items()):
+            rate = stats["fully_correct_rate"]
+            n_pass = round(rate * stats["n_samples"])
+            flag = "" if rate == 1.0 else "  <- unstable" if 0 < rate < 1.0 else "  <- always fails"
+            print(f"  - {test_id}: {n_pass}/{stats['n_samples']} ({rate:.0%}){flag}")
+            if rate < 1.0:
+                failing_checks = [name for name, r in stats["check_pass_rates"].items() if r < 1.0]
+                print(f"      unstable checks: {failing_checks}")
+    else:
+        failures = [r for r in summary.results if not r.fully_correct]
+        if failures:
+            print(f"\n{len(failures)} case(s) missed:")
+            for r in failures:
+                failed_checks = [name for name, ok in r.checks.items() if not ok]
+                print(f"  - {r.test_id}: failed {failed_checks} (predicted={r.predicted}) (judge coherence {r.judge_score:.2f})")
     print()

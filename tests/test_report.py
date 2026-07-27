@@ -6,9 +6,11 @@ import eval_harness.report as report
 from eval_harness.schema import RunSummary, ScoredResult
 
 
-def _result(severity_correct=True, category_correct=True, judge_score=0.8, cost=0.001, token_usage=None) -> ScoredResult:
+def _result(
+    severity_correct=True, category_correct=True, judge_score=0.8, cost=0.001, token_usage=None, test_id="bt-01"
+) -> ScoredResult:
     return ScoredResult(
-        test_id="bt-01",
+        test_id=test_id,
         predicted={"severity": "high", "category": "backend"},
         checks={"severity": severity_correct, "category": category_correct},
         judge_score=judge_score,
@@ -45,6 +47,36 @@ def test_build_summary_aggregates_correctly():
     assert summary.avg_judge_score == pytest.approx(1.5 / 3)
     assert summary.total_cost_usd == pytest.approx(0.06)
     assert summary.total_tokens == 50
+
+
+def test_build_summary_samples_per_case_dedupes_total_cases():
+    """3 samples each for 2 distinct cases (bt-01, bt-02) should report
+    total_cases=2, not len(results)=6 - samples aren't separate cases."""
+    results = [_result(test_id="bt-01") for _ in range(3)] + [_result(test_id="bt-02") for _ in range(3)]
+
+    summary = report.build_summary("v1_naive", "haiku", results, samples_per_case=3)
+
+    assert summary.total_cases == 2
+    assert summary.samples_per_case == 3
+
+
+def test_per_case_pass_rates_reports_fraction_of_samples_passing():
+    results = [
+        _result(test_id="bt-01", severity_correct=True, category_correct=True),
+        _result(test_id="bt-01", severity_correct=True, category_correct=True),
+        _result(test_id="bt-01", severity_correct=False, category_correct=True),
+        _result(test_id="bt-02", severity_correct=True, category_correct=True),
+    ]
+    summary = report.build_summary("v1_naive", "haiku", results, samples_per_case=3)
+
+    rates = report.per_case_pass_rates(summary)
+
+    assert rates["bt-01"]["n_samples"] == 3
+    assert rates["bt-01"]["fully_correct_rate"] == pytest.approx(2 / 3)
+    assert rates["bt-01"]["check_pass_rates"]["severity"] == pytest.approx(2 / 3)
+    assert rates["bt-01"]["check_pass_rates"]["category"] == pytest.approx(1.0)
+    assert rates["bt-02"]["n_samples"] == 1
+    assert rates["bt-02"]["fully_correct_rate"] == pytest.approx(1.0)
 
 
 def test_build_summary_empty_results_does_not_divide_by_zero():
@@ -93,6 +125,37 @@ def test_save_run_and_find_previous_run_round_trip():
 
     # before= excludes the just-saved run, so with only one run on disk this is None
     assert previous is None
+
+
+def test_samples_per_case_round_trips_through_save_and_find_previous_run(isolated_runs_dir):
+    isolated_runs_dir.mkdir(exist_ok=True)
+    summary = report.build_summary("v1_naive", "haiku", [_result(), _result(), _result()], samples_per_case=3)
+    saved_path = isolated_runs_dir / "20260101T000000Z__v1_naive__haiku.json"
+    saved_path.write_text(json.dumps({
+        "prompt_version": summary.prompt_version, "model": summary.model,
+        "total_cases": summary.total_cases, "check_accuracies": summary.check_accuracies,
+        "fully_correct_rate": summary.fully_correct_rate, "avg_judge_score": summary.avg_judge_score,
+        "total_cost_usd": summary.total_cost_usd, "samples_per_case": summary.samples_per_case,
+        "results": [],
+    }))
+
+    previous = report.find_previous_run("v1_naive", "haiku")
+    assert previous.samples_per_case == 3
+
+
+def test_find_previous_run_defaults_samples_per_case_to_one_for_pre_existing_run_files(isolated_runs_dir):
+    isolated_runs_dir.mkdir(exist_ok=True)
+    path = isolated_runs_dir / "20260101T000000Z__v1_naive__haiku.json"
+    payload = {
+        "prompt_version": "v1_naive", "model": "haiku", "total_cases": 1,
+        "check_accuracies": {"severity": 1.0}, "fully_correct_rate": 1.0,
+        "avg_judge_score": 0.8, "total_cost_usd": 0.01, "total_tokens": 0,
+        "results": [],
+    }
+    path.write_text(json.dumps(payload))
+
+    previous = report.find_previous_run("v1_naive", "haiku")
+    assert previous.samples_per_case == 1
 
 
 def _write_run_file(runs_dir, timestamp: str, prompt_version: str, model: str, avg_judge_score: float):

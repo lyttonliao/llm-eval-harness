@@ -12,12 +12,24 @@ type before live traffic is routed to it.
 
 ## What it evaluates
 
-Two suites demonstrate different evaluation shapes:
+Seven suites, 98 hand-authored cases, demonstrating four distinct evaluation
+shapes — exact label match, execution against tests, fact-constraint matching
+on free text, and structural inspection of the response itself:
 
 | Suite | Cases | Model contract | Deterministic score |
 | --- | ---: | --- | --- |
 | `bug_triage` | 15 | JSON severity, category, and reasoning | Exact, case-insensitive severity and category match |
 | `code_gen` | 17 | JSON Python source and reasoning | Generated code passes the case's pytest test file |
+| `summarization` | 16 | JSON summary and reasoning | Required facts present, forbidden/hallucinated facts absent, word-count limit respected |
+| `code_review` | 14 | JSON findings with severity, and reasoning | Planted issues flagged, severity tagged correctly, no false positives on bait |
+| `refactor` | 12 | JSON Python source and reasoning | Existing tests still pass, and the targeted code smell is structurally gone |
+| `multi_step` | 12 | JSON ordered plan steps, and reasoning | Required steps covered, dependency ordering respected, no premature actions |
+| `architecture` | 12 | JSON design, alternatives considered, and reasoning | Stated constraints addressed, no anti-patterns proposed, real tradeoffs named |
+
+Each suite pairs baseline cases with adversarial ones targeting known failure
+modes for that task type. Every case is validated in both directions before it
+is trusted: a correct reference answer must pass it, and a plausible-but-wrong
+answer must fail it.
 
 Each result also receives an optional LLM-as-judge **reasoning-coherence**
 score. This complements exact-match scoring: a model can arrive at the right
@@ -56,9 +68,27 @@ same `v1_naive` prompt. Claude's fully-correct rate increased from 60.0% on
 Haiku to 66.7% on Sonnet and 73.3% on Opus. A rubric-oriented prompt variant
 reached 80.0% fully correct on Haiku in a separate recorded run.
 
+A 16-case `summarization` benchmark using the `summarization_v1` prompt found
+a non-monotonic result across Claude's tiers: Haiku scored 87.5% fully
+correct, Opus 75.0%, and Sonnet 62.5% - every miss was a word-count-limit
+violation, not a factual error (all three tiers hit 100% on the fact-inclusion
+and no-hallucination checks). Larger tiers here are more verbose, and this
+task rewards concision, so bigger isn't uniformly better on this suite.
+
+The four later suites are recorded with more caution. `code_gen` (17 cases)
+and `refactor` (12 cases) show no measurable separation between Claude tiers —
+all three reach 100%, on case sets specifically hardened with adversarial
+cases confirmed to fail plausible-wrong implementations. `code_review` (14
+cases) is the one suite where the flagship tier separates cleanly (100%, versus
+78.6% for both cheaper tiers). `architecture` and `multi_step` are not yet
+trustworthy as model comparisons: both are currently limited by scorer
+strictness — substantively correct answers phrased in unanticipated wording
+score as misses — which is a property of the grading, not the models.
+
 These are small, hand-authored evaluation sets—not statistically conclusive
-leaderboard results. They are useful calibration evidence and regression
-signals, not claims of broad model superiority.
+leaderboard results. Most are a single sample per model. They are useful
+calibration evidence and regression signals, not claims of broad model
+superiority.
 
 ## Quick start
 
@@ -81,6 +111,10 @@ uv run python -m eval_harness run --prompt v1_naive --model haiku
 # Run code generation without the optional judge pass
 uv run python -m eval_harness run \
   --suite code_gen --prompt code_gen_v1 --model haiku --no-judge
+
+# Evaluate the summarization suite with Claude Sonnet
+uv run python -m eval_harness run \
+  --suite summarization --prompt summarization_v1 --model sonnet
 
 # Evaluate an explicitly named Codex model
 uv run python -m eval_harness run \
@@ -111,7 +145,10 @@ eval_harness/
   *_cli.py        Claude and Codex CLI adapters
 tests/            Unit tests for schemas, parsing, adapters, scoring, and reports
 runs/             Saved benchmark artifacts
+docs/             Archived run-by-run development history
 ```
 
 See [`CLAUDE.md`](CLAUDE.md) for development notes, suite-extension guidance,
-and the detailed calibration record used by the task-router prototype.
+and the current calibration record used by the task-router prototype, and
+[`docs/lab-notebook.md`](docs/lab-notebook.md) for the run-by-run history
+behind it.

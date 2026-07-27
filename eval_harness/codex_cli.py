@@ -74,10 +74,10 @@ def call_codex(system_prompt: str, user_message: str, model: str | None = None) 
     try:
         try:
             proc = subprocess.run(
-                cmd, capture_output=True, text=True, timeout=60, stdin=subprocess.DEVNULL
+                cmd, capture_output=True, text=True, timeout=120, stdin=subprocess.DEVNULL
             )
         except subprocess.TimeoutExpired:
-            return CliResult(text="", cost_usd=0.0, duration_ms=60_000, error="timeout")
+            return CliResult(text="", cost_usd=0.0, duration_ms=120_000, error="timeout")
 
         duration_ms = int((time.perf_counter() - start) * 1000)
 

@@ -25,12 +25,14 @@ def resolve_model(provider: str, model: str | None) -> str:
     )
 
 
-def run_once(suite: str, prompt: str, provider: str, model: str, judge: bool) -> None:
+def run_once(suite: str, prompt: str, provider: str, model: str, judge: bool, samples: int = 1) -> None:
     print(f"Running suite '{suite}' with prompt '{prompt}' on {provider}/{model}...")
     if provider == "codex":
         print("note: Codex does not report per-call cost; $0.00 is a placeholder, while token usage is recorded")
+    if samples > 1:
+        print(f"note: {samples} samples/case - cost and call count scale by {samples}x a single run")
     cases = load_cases(suite)
-    outputs = run_suite(suite, prompt, provider=provider, model=model)
+    outputs = run_suite(suite, prompt, provider=provider, model=model, samples=samples)
 
     if judge:
         print("\nScoring (rule-based + judge)...")
@@ -38,7 +40,7 @@ def run_once(suite: str, prompt: str, provider: str, model: str, judge: bool) ->
         print("\nScoring (rule-based only)...")
     results = score_all(suite, cases, outputs, run_judge=judge)
 
-    summary = build_summary(prompt, model, results, provider=provider)
+    summary = build_summary(prompt, model, results, provider=provider, samples_per_case=samples)
     saved_path = save_run(summary)
     previous = find_previous_run(prompt, model, before=saved_path)
     print_report(summary, previous=previous)
@@ -81,6 +83,12 @@ def main() -> None:
     p_run.add_argument("--provider", default="claude", choices=["claude", "codex"])
     p_run.add_argument("--model", default=None, help="defaults to haiku for claude; required for codex")
     p_run.add_argument("--no-judge", action="store_true", help="skip the LLM-judge pass (cheaper, faster)")
+    p_run.add_argument(
+        "--samples", type=int, default=1,
+        help="run each case N times and report a per-case pass rate instead of pass/fail - "
+        "cost/call-count scale by N (see CLAUDE.md's \"Working rules\" on not "
+        "concluding from a single sample)",
+    )
 
     p_cmp = sub.add_parser("compare", help="run two prompt versions head-to-head")
     p_cmp.add_argument("--suite", default="bug_triage")
@@ -98,7 +106,7 @@ def main() -> None:
         parser.error(str(e))
 
     if args.command == "run":
-        run_once(args.suite, args.prompt, args.provider, model, judge=not args.no_judge)
+        run_once(args.suite, args.prompt, args.provider, model, judge=not args.no_judge, samples=args.samples)
     elif args.command == "compare":
         compare(args.suite, args.prompt_a, args.prompt_b, args.provider, model, judge=not args.no_judge)
 

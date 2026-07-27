@@ -36,7 +36,7 @@ def test_builds_expected_command_with_cost_guardrail_flags():
     ]
     assert kwargs["capture_output"] is True
     assert kwargs["text"] is True
-    assert kwargs["timeout"] == 60
+    assert kwargs["timeout"] == 240
 
 
 def test_success_path_parses_cost_duration_and_result():
@@ -73,12 +73,12 @@ def test_nonzero_exit_code_with_empty_stderr_uses_fallback_message():
 def test_timeout_expired_returns_timeout_error():
     with patch(
         "eval_harness.claude_cli.subprocess.run",
-        side_effect=subprocess.TimeoutExpired(cmd=["claude"], timeout=60),
+        side_effect=subprocess.TimeoutExpired(cmd=["claude"], timeout=240),
     ):
         result = call_claude("sys", "msg")
 
     assert result.error == "timeout"
-    assert result.duration_ms == 60_000
+    assert result.duration_ms == 240_000
     assert result.cost_usd == 0.0
     assert result.text == ""
 

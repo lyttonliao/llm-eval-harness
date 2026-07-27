@@ -35,7 +35,7 @@ def test_builds_expected_command_with_concatenated_prompt_and_readonly_sandbox()
     assert "--output-last-message" in cmd
     assert kwargs["capture_output"] is True
     assert kwargs["text"] is True
-    assert kwargs["timeout"] == 60
+    assert kwargs["timeout"] == 120
     assert kwargs["stdin"] == subprocess.DEVNULL
 
 
@@ -147,12 +147,12 @@ def test_invalid_model_name_returns_error_from_real_observed_failure_shape():
 def test_timeout_expired_returns_timeout_error():
     with patch(
         "eval_harness.codex_cli.subprocess.run",
-        side_effect=subprocess.TimeoutExpired(cmd=["codex"], timeout=60),
+        side_effect=subprocess.TimeoutExpired(cmd=["codex"], timeout=120),
     ):
         result = call_codex("sys", "msg", model="gpt-5")
 
     assert result.error == "timeout"
-    assert result.duration_ms == 60_000
+    assert result.duration_ms == 120_000
 
 
 def test_missing_output_file_returns_empty_text():

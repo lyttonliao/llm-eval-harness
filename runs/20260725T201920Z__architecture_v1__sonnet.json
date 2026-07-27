@@ -1,0 +1,369 @@
+{
+  "prompt_version": "architecture_v1",
+  "model": "sonnet",
+  "provider": "claude",
+  "total_cases": 12,
+  "check_accuracies": {
+    "key_considerations_addressed": 1.0,
+    "no_anti_patterns": 0.9166666666666666,
+    "tradeoffs_articulated": 1.0
+  },
+  "fully_correct_rate": 0.9166666666666666,
+  "avg_judge_score": 0.8716666666666667,
+  "total_cost_usd": 2.378203,
+  "total_tokens": 0,
+  "results": [
+    {
+      "test_id": "ar-01",
+      "predicted": {
+        "reasoning": "Centralize rate-limit state in a highly-available, sharded in-memory store keyed per API key so all instances agree on the same counter, with a degraded local fallback so total store unavailability doesn't take down the API.",
+        "design": "Per-key counters live in a Redis Cluster (3+ shards, each with a replica, deployed across 3 AZs, Redis Cluster mode for automatic failover \u2014 not a single Redis node). Each API server instance runs a thin rate-limit client that, on each request, executes a single atomic Lua script against the shard owning that API key's hash slot: it checks the current window count via a sliding-window-counter (two adjacent fixed windows weighted by elapsed time, or a token bucket stored as key fields with TTL) and increments/rejects atomically in one round trip \u2014 avoids the check-then-increment race that a naive GET+SET would have across concurrent instances. Key routing uses Redis Cluster's built-in hash-slot sharding on the API key, so load spreads across shards and no single key's traffic can saturate the whole cluster, and no single shard holds all keys. Consistency is enforced by design (one authoritative store, atomic op) regardless of which LB-routed instance handles the request \u2014 no sticky sessions needed. For the 'limiter itself must not be a SPOF' requirement: Redis Cluster's automatic replica promotion covers node-level failure (sub-second failover); for the rarer full-cluster-unreachable case, each instance falls back to a conservative local in-memory token bucket (e.g., 50% of the global per-key limit) for the duration of the outage \u2014 a deliberate fail-open-but-throttled degrade so a store outage degrades enforcement precision rather than taking the API down entirely. Client-side: short connection timeout (~50ms) and circuit breaker around the Redis calls so a slow/unreachable store fails fast into the local fallback path instead of blocking request latency. Metrics (limit-store latency, fallback-mode activations, per-key reject rate) exported to Prometheus per existing observability convention.",
+        "alternatives_considered": [
+          {
+            "option": "Per-instance in-memory counters with LB sticky sessions per API key",
+            "rejected_because": "sticky sessions break the consistency requirement outright on instance failure or LB rebalancing (the key's traffic silently resets to zero on failover), and uneven request distribution across instances would make the same key see different effective limits depending on which instances happen to receive its traffic."
+          },
+          {
+            "option": "A strongly-consistent coordination store (etcd/ZooKeeper) for the counters instead of Redis",
+            "rejected_because": "those stores are optimized for low-frequency config/consensus writes, not the high-frequency read-modify-write throughput a per-request rate limiter generates across every API call; Redis's atomic Lua execution and sub-millisecond in-memory ops fit the access pattern directly without paying consensus-protocol overhead on every request."
+          }
+        ]
+      },
+      "checks": {
+        "key_considerations_addressed": true,
+        "no_anti_patterns": true,
+        "tradeoffs_articulated": true
+      },
+      "judge_score": 0.92,
+      "judge_rationale": "The reasoning directly maps to all three task constraints (centralization addresses multi-instance consistency, sharding+HA addresses the no-SPOF requirement, degraded fallback addresses total outage), is grounded in specific architectural concerns (per-key sharding, atomic consistency, AZ-distributed replicas), and the design faithfully implements each principle; minor gap is that 'atomic operations to prevent check-then-increment races' isn't explicitly stated in the one-sentence reasoning despite being central to the consistency claim, though it follows naturally from 'all instances agree on the same counter.'",
+      "cost_usd": 0.17568599999999998,
+      "duration_ms": 24579,
+      "token_usage": {}
+    },
+    {
+      "test_id": "ar-02",
+      "predicted": {
+        "reasoning": "Decouple ingestion from storage with a durable buffer, use a purpose-built time-series store sized only for the 24h hot window, and roll everything older into cheap columnar object storage queried on-demand rather than kept warm.",
+        "design": "**Ingestion path:** 50k devices publish over MQTT/HTTPS to AWS IoT Core (or an ALB-fronted ingest service if devices already speak HTTP), which forwards immediately into a Kinesis Data Stream (on-demand mode, scales past 10k records/sec with no capacity planning). Kinesis is the shock absorber - it decouples bursty device traffic from write capacity downstream and gives 24h+ of replay if a consumer or the DB has an outage, so no data is lost on a downstream failure.\n\n**Hot store (last 24h, fast queries):** A fleet of stateless consumers (ECS Fargate, scaled on Kinesis iterator age) read the stream and batch-insert into TimescaleDB (Postgres, matches existing stack) via multi-row INSERT/COPY every 1-2s or ~1k rows - never one row per write, since 10k discrete connections/sec would blow out Postgres regardless of instance size. Hypertable is chunked hourly and indexed on (device_id, time DESC), the dominant query shape (per-device time-range lookups). Multi-AZ for failover; PgBouncer in front for connection pooling across the consumer fleet. Sized only for a 24h working set (~150-200GB raw at ~200 bytes/reading), not full retention - this keeps the expensive compute/IOPS tier small on purpose.\n\n**Rollup job (the hot/cold boundary):** A scheduled job (hourly) exports hypertable chunks older than 24h to Parquet on S3, partitioned by date and device-id-prefix, then drops the chunk from TimescaleDB. Parquet's columnar compression plus S3 standard/IA storage is materially cheaper per GB than keeping data on provisioned DB storage, which is the whole point of the split.\n\n**Cold store (>24h, rare queries):** S3 + Athena. No always-on compute - Athena is pay-per-query, which fits \"rarely queried\" directly; querying old data costs only when it happens rather than paying for standing compute.\n\n**Query routing:** A thin API layer inspects the requested time range - fully within 24h routes to TimescaleDB, anything older (or spanning the boundary) routes to Athena (or both, unioned, for straddling ranges). Keeps the two storage tiers invisible to callers.\n\n**Observability:** Kinesis iterator-age and consumer-lag, TimescaleDB write latency/connection saturation, and rollup-job success/duration all exported to the existing Prometheus/CloudWatch/Grafana setup - iterator age in particular is the leading indicator of ingestion falling behind.",
+        "alternatives_considered": [
+          {
+            "option": "Amazon Timestream (purpose-built time-series DB with native memory-store/magnetic-store tiering)",
+            "rejected_because": "it does the hot/cold split out of the box, but its SQL dialect is restrictive for anything beyond simple time-range aggregation and its pricing is sensitive to dimension cardinality - 50k distinct device IDs as a dimension makes cost less predictable than TimescaleDB on provisioned Postgres, which the team already operates and can reason about."
+          },
+          {
+            "option": "Devices write directly to TimescaleDB with no queue in front",
+            "rejected_because": "50k independently-clocked devices produce bursty, not uniform, traffic; without Kinesis absorbing spikes, a burst above sustained 10k/s or a brief DB hiccup turns into dropped writes instead of a backlog that drains once the consumer catches up."
+          },
+          {
+            "option": "Keep all data (hot and cold) in one TimescaleDB cluster sized for full retention, skip the rollup/Parquet split",
+            "rejected_because": "directly violates the stated requirement that old data be stored more cheaply - provisioned DB storage/IOPS for data queried rarely is paying premium-tier cost for a workload with no latency requirement."
+          }
+        ]
+      },
+      "checks": {
+        "key_considerations_addressed": true,
+        "no_anti_patterns": true,
+        "tradeoffs_articulated": true
+      },
+      "judge_score": 0.9,
+      "judge_rationale": "The reasoning directly justifies the design with specific grounding in task constraints (10k writes/sec requiring a durable buffer, 24h hot window needing a dedicated store, old data requiring cheap tiered storage), and every element stated in the reasoning appears in the design; the alternatives considered reinforce this is grounded trade-off reasoning rather than post-hoc justification.",
+      "cost_usd": 0.209154,
+      "duration_ms": 53115,
+      "token_usage": {}
+    },
+    {
+      "test_id": "ar-03",
+      "predicted": {
+        "reasoning": "Treat each partner file as an independently-retryable unit of work keyed by S3 object + date partition, with a Step Functions Map state that isolates per-file failures and a daily reconciliation pass that catches late arrivals \u2014 this directly satisfies 'one bad/late file can't block other days or future runs' without inventing scale the scenario doesn't have.",
+        "design": "**Ingest surface:** partner uploads CSVs to `s3://partner-landing/incoming/dt=YYYY-MM-DD/<file>.csv`. Two triggers, not one: (1) S3 ObjectCreated event -> EventBridge -> starts a Step Functions execution for same-day near-real-time processing; (2) an EventBridge Scheduler cron (daily, e.g. 06:00) that always runs regardless of (1) firing, scanning the last 7 days of `incoming/` prefixes and diffing against a Postgres `ingest_log` table for any file with no `success` row \u2014 this is what actually satisfies 'late-arriving files get processed' since S3 event delivery is at-least-once but not guaranteed-timely, and a partner might drop a file for dt=2026-07-20 three days late with no new event at all for that key if it was already delivered-and-retried.\n\n**Orchestration:** one Step Functions state machine, `Map` state over the list of pending files (fan-out, isolated per item via `ItemProcessor` with a `Catch` on each branch). Each file gets its own Fargate task invocation (small Python job, not Lambda, to reuse the same container image/tooling as other batch jobs in the stack) that: (a) schema/row validation via PyArrow (column set, types, non-empty, row-count sanity), (b) on failure -> move object to `quarantine/dt=.../`, write `ingest_log` row (`file_key`, `dt`, `status=quarantined`, `error_detail`, `etag`), emit a CloudWatch metric `files_quarantined`, and the Map branch exits cleanly (caught, not thrown) so sibling files and the overall execution are unaffected; (c) on success -> convert to Parquet, land in `processed/dt=.../`, `COPY` into a Postgres staging table scoped to that partition, write `ingest_log` row `status=success` with row count.\n\n**Idempotency (required for late-arrival replays):** `ingest_log` is keyed on `(file_key, etag)`. Reconciliation only reprocesses files with no matching success row, so re-running the daily job never double-loads a file already ingested; the staging load itself is `INSERT ... ON CONFLICT DO NOTHING` keyed on a partner-supplied record id (or file_key+row_num if none exists) as a second idempotency layer in case a file gets reprocessed under a different key.\n\n**Transform:** dbt Core runs after the Map state completes, `--select` scoped to only the `dt` partitions touched in this execution (not a full refresh) \u2014 one bad partition never forces a rebuild or blocks marts for unrelated days, and a day that's still incomplete (some files quarantined) simply doesn't get its dbt model marked complete until reconciliation later fills the gap.\n\n**Never-blocks-the-pipeline guarantee:** the state machine's overall execution always reaches a terminal `SUCCEEDED` state regardless of individual quarantines \u2014 failure isolation lives entirely inside the Map branches' `Catch`, not at the state-machine level, so tomorrow's scheduled run is never gated on today's quarantines.\n\n**Observability/alerting:** CloudWatch metrics (`files_processed`, `files_quarantined`, `rows_loaded` per run) exported to the existing Prometheus/Grafana setup; alert rule fires when `files_quarantined > 0` (needs a human to look at the bad file) or when a `dt` partition has zero successful files past a 48h lateness SLA (partner never sent it / totally malformed) \u2014 both are visibility, neither halts execution.\n\n**IaC/blast radius:** new S3 bucket + prefixes, one Step Functions state machine, one Fargate task def, one EventBridge rule + scheduled rule, `ingest_log` table migration in Postgres \u2014 all net-new, zero blast radius on existing services; only shared resource is the Postgres warehouse instance (new schema/table, not touching existing tables).",
+        "alternatives_considered": [
+          {
+            "option": "Airflow (or another DAG scheduler) for orchestration",
+            "rejected_because": "not already in the stack (Terraform/ECS Fargate/EventBridge already cover scheduled + event-driven AWS-native orchestration) and adds a scheduler service to operate for what is a single daily batch job \u2014 Step Functions Map state gives the same per-item failure isolation without new infra to run and patch."
+          },
+          {
+            "option": "S3 event trigger only, no daily reconciliation scan",
+            "rejected_because": "purely event-driven misses the actual late-arrival requirement: S3 event delivery is at-least-once but not guaranteed-prompt, and a file that arrives out-of-band (re-uploaded, or delivered while the pipeline was down) generates no new distinguishing event to reprocess it. The daily scan-and-diff against `ingest_log` is what turns 'sometimes files are late' into a self-healing system rather than one that needs manual replay triggers."
+          },
+          {
+            "option": "Fail the whole day's batch load if any file in that day's set is malformed",
+            "rejected_because": "directly violates the stated constraint; also unnecessary complexity to reason about 'day' as an atomic unit at all when the natural unit of retry/idempotency is a single file, since partners send multiple files per day and a bad file is uncorrelated with its siblings' validity."
+          }
+        ]
+      },
+      "checks": {
+        "key_considerations_addressed": true,
+        "no_anti_patterns": true,
+        "tradeoffs_articulated": true
+      },
+      "judge_score": 0.91,
+      "judge_rationale": "The reasoning directly maps to each major design choice (Map state for per-file isolation, daily reconciliation for late arrivals, always-SUCCEEDED machine for pipeline continuity), correctly identifies the root problem (S3 events unreliable for late files, not just failures), and traces through why each component satisfies the stated constraints ('bad file can't block siblings or future runs'); no unsupported claims or logical gaps, though it's tightly packed.",
+      "cost_usd": 0.210371,
+      "duration_ms": 54833,
+      "token_usage": {}
+    },
+    {
+      "test_id": "ar-04",
+      "predicted": {
+        "reasoning": "Use an active-passive warm-standby topology across two regions with fully automated health-check-driven DNS failover and automated database promotion, sized to guarantee the 5-minute RTO without the operational cost of active-active.",
+        "design": "Compute: identical ECS Fargate service deployed in both regions behind a regional ALB. Secondary region runs at reduced (warm) capacity, not zero, so there's no cold-start/image-pull/container-boot delay during failover - only a scale-up. Data: Aurora Global Database (or equivalent managed cross-region replica) with the primary in region A and a continuously-replicating secondary in region B (typically sub-second replication lag, so RPO stays low). Failover trigger: Route53 health checks against the primary ALB (10s interval, 3 consecutive failures \u2248 30s to detect) drive a Route53 failover routing policy with a 30-60s DNS TTL, so DNS starts pointing at the secondary automatically as soon as the primary is marked unhealthy - no human touches DNS. Automated orchestration: the same CloudWatch alarm that reflects the Route53 health check failure fires a Lambda/Step Functions workflow that (1) calls the Aurora Global Database promote API on the secondary cluster, (2) triggers the ECS scale-up policy in region B, (3) flips any app-level config (e.g. write-endpoint env var via Parameter Store) that services read on startup/health probe. Budget check against the 5-minute RTO: ~30s detection + ~60s DNS TTL propagation + ~60-90s Aurora promotion + near-zero app warm-up (already running) leaves comfortable margin. Observability: CloudWatch alarms on health-check status and replication lag feed the existing Prometheus/Grafana stack, and failover events emit the same metrics format as every other service here rather than a bespoke scheme. Validate the RTO number stays true with scheduled automated game-day drills (synthetic failure injection, not a manual tabletop exercise) rather than assuming the design holds indefinitely.",
+        "alternatives_considered": [
+          {
+            "option": "Active-active multi-region (multi-master writes, e.g. DynamoDB global tables or Aurora multi-master)",
+            "rejected_because": "solves availability at the cost of conflict-resolution complexity on writes; for a single critical internal service, warm-standby active-passive already meets the 5-minute RTO with far less operational surface area - active-active is solving a problem (concurrent multi-region writes) this scenario doesn't state."
+          },
+          {
+            "option": "Cold standby - only provision the secondary region's infra/DB when the primary actually fails",
+            "rejected_because": "container provisioning plus a DB restore-from-snapshot (rather than a live replica) would consume most or all of the 5-minute budget by itself, leaving no margin for DNS propagation or health-check detection time - fails the explicit RTO constraint."
+          },
+          {
+            "option": "Automated DNS failover with a manual runbook for database promotion",
+            "rejected_because": "directly violates the stated 'no manual intervention' requirement - DB promotion is exactly the step operators are usually paged for, so it has to be in the same automated trigger chain as the DNS failover, not left as a human step."
+          }
+        ]
+      },
+      "checks": {
+        "key_considerations_addressed": true,
+        "no_anti_patterns": true,
+        "tradeoffs_articulated": true
+      },
+      "judge_score": 0.82,
+      "judge_rationale": "The reasoning is internally consistent and directly grounded in the task's two explicit constraints (5-minute RTO and zero manual intervention), with the one-sentence summary accurately describing the design proposed; the main minor weakness is that it states *what* (active-passive with automated failover) more than *why* (though the alternatives section compensates by showing the reasoning against competing approaches).",
+      "cost_usd": 0.181924,
+      "duration_ms": 30586,
+      "token_usage": {}
+    },
+    {
+      "test_id": "ar-05",
+      "predicted": {
+        "reasoning": "Use durable queue + persisted checkpoint state so a crashed worker's job is neither lost nor restarted from scratch, and let clients poll a stable job-status endpoint instead of holding a live connection.",
+        "design": "**Submission & status API (FastAPI, existing stack):** `POST /reports` inserts a row into a Postgres `jobs` table (`id, user_id, params jsonb, status: queued|running|complete|failed, s3_result_key, created_at, updated_at`) and enqueues `{job_id}` to an SQS standard queue. `GET /reports/{id}` reads that row only - no coupling to the worker's internal state, so the client can close the browser and check back anytime. Return a presigned S3 URL once `status=complete`.\n\n**Workers (ECS Fargate service, existing stack):** a pool of workers long-polls SQS. Visibility timeout set above the expected max job duration (e.g. 20 min) and extended via a heartbeat (`ChangeMessageVisibility`) every few minutes while actively processing, so a live worker doesn't lose its lease mid-job. Job body only carries `job_id` - all actual state lives in Postgres, so any worker can pick up any job.\n\n**Resumability via checkpointing, not restart-from-scratch:** each report job is decomposed into ordered, idempotent steps (e.g. fetch data chunk -> transform -> aggregate -> render). A `job_steps` table (`job_id, step_index, status, result_ref, completed_at`) records progress. On start, a worker queries the max completed `step_index` for that job and resumes from the next one rather than redoing finished work. Each step writes its output keyed by `(job_id, step_index)` so a step re-run after a crash overwrites deterministically instead of duplicating. This is what actually satisfies \"must not be lost\": if a worker dies mid-job (task killed, OOM, deploy), it never deleted the SQS message, so after the visibility timeout expires the message reappears and a different worker resumes from the last checkpoint - not from zero.\n\n**Failure handling:** SQS `maxReceiveCount` (e.g. 5) routes a message to a DLQ after repeated failures; a CloudWatch alarm on DLQ depth pages, and the job row flips to `failed` with the last error so the API can surface it instead of leaving the client polling forever.\n\n**Scaling & ops:** worker service auto-scales on `ApproximateNumberOfMessagesVisible` (CloudWatch/ECS target-tracking) - fits the existing ECS/ALB/CloudWatch stack with no new infra class. Metrics (queue depth, per-step duration, retry count, DLQ depth) emitted Prometheus-compatible for the existing Grafana dashboards, not a bespoke logging path.",
+        "alternatives_considered": [
+          {
+            "option": "Celery + Redis (or RabbitMQ) as the job broker",
+            "rejected_because": "would introduce a new stateful piece of infra (Redis/Rabbit cluster) to operate and back up, when SQS is already the natural fit on this AWS/ECS Fargate stack and needs no cluster management - not worth the added operational surface for the same at-least-once queue semantics."
+          },
+          {
+            "option": "AWS Step Functions to orchestrate report steps",
+            "rejected_because": "gives built-in per-step retry and visibility, but adds a second execution/orchestration model on top of the already-adopted ECS/SQS stack for a workflow that's a simple linear step sequence, not branching or cross-service - the same checkpoint-and-resume behavior is achievable with one Postgres table and costs nothing extra to operate."
+          },
+          {
+            "option": "Let a crashed job simply restart from step 0 on redelivery (no checkpoint table)",
+            "rejected_because": "technically satisfies 'not lost' via SQS redelivery alone, but for a 10+ minute job repeated crashes near the end would never let it finish and would silently waste compute each retry - the explicit requirement is retry-or-resume, and only a persisted step checkpoint actually delivers resume."
+          }
+        ]
+      },
+      "checks": {
+        "key_considerations_addressed": true,
+        "no_anti_patterns": true,
+        "tradeoffs_articulated": true
+      },
+      "judge_score": 0.85,
+      "judge_rationale": "Reasoning correctly identifies the two core architectural decisions (durable queue + persisted checkpoint) that directly address the stated task constraints (job not lost, resumable after crash), and grounds both in specific task requirements; the polling endpoint is appropriately identified as part of the solution pattern. Minor gap: doesn't explicitly explain the interaction between queue redelivery and checkpoint resumption (that the queue delivers the message back, and the checkpoint tells the worker where to pick up), but this is an implementation detail appropriate to omit from a one-sentence summary.",
+      "cost_usd": 0.190127,
+      "duration_ms": 35993,
+      "token_usage": {}
+    },
+    {
+      "test_id": "ar-06",
+      "predicted": {
+        "reasoning": "Decouple freshness from raw TTL by combining a CDN edge cache with event-driven purge-on-publish and stale-while-revalidate/request-collapsing, so the origin only ever sees one request per cache-key-refresh regardless of visitor volume.",
+        "design": "Edge layer: CDN (CloudFront/Fastly) sits in front of the homepage with the fully-rendered HTML cached at the edge under a single cache key (no per-user variation baked into the page - see below). Default TTL is set generously (5 min), not tuned down to 60s, because freshness is guaranteed a different way: the CMS publish action fires an explicit purge/invalidation call (CloudFront Invalidation API or Fastly Instant Purge) against the homepage cache key at publish time. That gives near-immediate (<10s typical) propagation, comfortably inside the 1-minute SLA, without needing a short TTL that would otherwise increase origin load. Origin protection: enable Origin Shield (CloudFront) or equivalent request-collapsing (Fastly's built-in behavior) so that when the cache is empty/just-purged and a viral spike hits simultaneously, only one request per POP (ideally one globally, via shield) reaches the origin to regenerate the page - the other thousands of concurrent requests queue against that single in-flight fetch rather than each hitting origin. Layer stale-while-revalidate + stale-if-error on top: serve the last-known-good cached copy while a background refresh happens, and continue serving stale (with a longer stale-if-error window, e.g. 1 hour) if the origin is unreachable or errors - this means even an origin outage during a traffic spike doesn't take the homepage down. Cacheability constraint: the homepage HTML itself must be identical for all anonymous visitors (no server-side personalization baked into the cached document) - any personalized elements (login state, recommendations) are fetched client-side via a separate, smaller API call that isn't part of the cached shell. This is what makes the whole page eligible for a single shared cache entry in the first place; without it you're stuck cache-key-fragmenting per user and origin protection falls apart under a spike. Application layer backstop: origin itself keeps a short-lived render cache (e.g. Redis, 30-60s TTL) for the rendered homepage fragment, so even the one collapsed request per purge doesn't do a full DB-driven render on every purge event.",
+        "alternatives_considered": [
+          {
+            "option": "Short TTL only (e.g. 30-45s) with no explicit purge-on-publish, relying purely on expiry for freshness",
+            "rejected_because": "hitting the 1-minute freshness SLA this way forces a TTL short enough that the cache re-validates against origin dozens of times a minute even under normal traffic, and during a viral spike every TTL boundary becomes a fresh thundering-herd moment - explicit purge lets TTL stay long (better origin protection baseline) while freshness is handled as a separate, deterministic event."
+          },
+          {
+            "option": "Server-side personalized rendering of the homepage per visitor (skip CDN caching, rely on origin-side app cache like Redis only)",
+            "rejected_because": "if the page varies per user it can't share a single CDN cache entry, so a viral spike sends full request volume straight to origin regardless of app-level caching sophistication - defeats the origin-protection requirement outright; personalization has to move to a separate, smaller client-side call for the CDN layer to do any real work."
+          }
+        ]
+      },
+      "checks": {
+        "key_considerations_addressed": true,
+        "no_anti_patterns": true,
+        "tradeoffs_articulated": true
+      },
+      "judge_score": 0.83,
+      "judge_rationale": "The reasoning directly addresses both task requirements (1-minute freshness via event-driven purge; spike protection via request-collapsing) with specific, grounded mechanisms, and the design substantiates every claim; the one weakness is the reasoning statement omits stale-while-revalidate and the cacheability constraint, which are central to why the architecture actually works under spike conditions.",
+      "cost_usd": 0.182713,
+      "duration_ms": 31992,
+      "token_usage": {}
+    },
+    {
+      "test_id": "ar-07",
+      "predicted": {
+        "reasoning": "Size the design to the stated scale (30 users, <100 req/day) by using fully managed, single-region services with minimal moving parts, while still covering the explicit 'reliable and easy to operate' requirement through automated backups, health-checked compute, and IaC rather than manual ops.",
+        "design": "Frontend: Next.js app deployed to Vercel (zero-ops hosting, free/low tier covers this traffic trivially, auto TLS/CDN). Auth: Google Workspace OAuth (or existing corporate IdP) via NextAuth/OAuth2 - no custom user/password store to maintain for 30 known employees. Backend: single FastAPI service on ECS Fargate (2 tasks for rolling deploys/basic redundancy, not for scale) behind an ALB with health checks; deployed via Terraform + GitHub Actions to ECR/ECS - no Kubernetes/ArgoCD, that machinery buys nothing at this traffic level and adds operational surface for a small team. Data: RDS PostgreSQL (single small instance, e.g. db.t4g.micro) with Multi-AZ enabled - the delta cost (~$15/mo) is cheap insurance for financial record data and gives automatic failover without any operational complexity, plus automated daily snapshots and 7-day PITR for recovery from bad writes/accidental deletes. Receipts/attachments go to S3 (SSE encrypted, versioned, lifecycle rule to Glacier after a year) rather than in Postgres blobs. Observability: CloudWatch alarms on ALB 5xx rate, ECS task health, and RDS CPU/storage - reuses the team's existing CloudWatch setup instead of a bespoke logging/monitoring stack. Everything in one AWS region/one environment plus a staging stack from the same Terraform module for safe testing of changes. Expected cost: roughly $40-70/mo total (Fargate min tasks + Multi-AZ micro RDS + S3 + ALB), comfortably 'internal tool' budget.",
+        "alternatives_considered": [
+          {
+            "option": "ECS/Kubernetes + ArgoCD GitOps pipeline (the team's usual infra pattern)",
+            "rejected_because": "that stack exists to manage many services/deploys at scale; for one FastAPI service serving <100 req/day it adds a control plane, manifest repo, and sync tooling that a 30-person team would have to maintain for zero benefit over a plain ECS service + Terraform apply."
+          },
+          {
+            "option": "Serverless (API Gateway + Lambda + DynamoDB)",
+            "rejected_because": "expense tracking needs relational joins/reporting (employee, category, approval status) that Postgres handles naturally and the team already knows; Lambda cold starts and DynamoDB's access-pattern-first modeling add complexity this traffic profile doesn't need to pay for."
+          },
+          {
+            "option": "Single self-managed EC2 instance running Postgres + app directly",
+            "rejected_because": "cheaper on paper but pushes backup scheduling, failover, and patching onto the team manually - RDS Multi-AZ automates exactly the reliability property they asked for at a small, predictable cost delta."
+          }
+        ]
+      },
+      "checks": {
+        "key_considerations_addressed": true,
+        "no_anti_patterns": false,
+        "tradeoffs_articulated": true
+      },
+      "judge_score": 0.9,
+      "judge_rationale": "The reasoning specifically grounds each design choice in the stated scale (30 users, <100 req/day) and explicit requirements (reliable, easy to operate), directly justifying the selection of managed services, Multi-AZ for financial data, and IaC over manual ops\u2014the design answer instantiates these principles without generic hand-waving, and the alternatives considered explicitly address why architectural patterns designed for higher scale or different query patterns were rejected for this case.",
+      "cost_usd": 0.18890699999999996,
+      "duration_ms": 35582,
+      "token_usage": {}
+    },
+    {
+      "test_id": "ar-08",
+      "predicted": {
+        "reasoning": "Since the only hard constraints are 'store card data for recurring billing' and 'PCI-DSS compliant', the lowest-risk, lowest-compliance-burden design pushes actual cardholder data out of our infrastructure entirely and stores only tokens/references.",
+        "design": "Card capture and storage is delegated entirely to a PCI-DSS Level 1 certified processor with vaulting + recurring billing support (Stripe Billing, chosen for existing FastAPI/Next.js fit; Braintree/Adyen are equivalent). Card entry happens client-side via the processor's hosted fields/Elements (Next.js) so the raw PAN goes directly from browser to processor over TLS and never transits our servers - this drops our own PCI scope to SAQ A / SAQ A-EP (self-attestation, no QSA audit, no cardholder-data-environment segmentation) instead of SAQ D. Our FastAPI backend only ever stores non-sensitive references: processor customer_id, payment_method token, subscription_id, plan/billing status, invoice history - all in Postgres, encrypted at rest via standard RDS/EBS encryption (this data isn't cardholder data so it doesn't need HSM-backed key management). Recurring charges are driven by the processor's subscription engine (schedules, proration, retry/dunning on failed card decline), not custom cron logic - we consume its webhooks (invoice.paid, invoice.payment_failed, customer.subscription.updated) into an idempotent FastAPI webhook handler that verifies signatures and updates local billing state; webhook delivery is at-least-once so handlers key off event id for idempotency. Secrets (processor API key) live in AWS Secrets Manager, rotated, injected into ECS Fargate tasks - never in env files or source. All webhook/billing endpoints emit Prometheus metrics (charge success/failure rate, webhook lag) into the existing Grafana/CloudWatch setup, same as any other service. Access to the processor dashboard and API keys is restricted by role, and every admin action against a customer's billing record is audit-logged to CloudWatch - both required by PCI-DSS's access-control and audit-trail requirements even though we hold no PAN.",
+        "alternatives_considered": [
+          {
+            "option": "Build an in-house PCI-compliant card vault (store PAN directly under SAQ D)",
+            "rejected_because": "SAQ D requires a segmented cardholder-data-environment VPC, HSM-backed encryption key management, quarterly ASV network scans, and an annual on-site QSA audit - real recurring cost and engineering overhead with zero product benefit over tokenized processor billing, and it increases breach blast radius (a compromise exposes raw PANs) instead of reducing it. Nothing in the stated requirements needs us to hold the PAN ourselves."
+          },
+          {
+            "option": "Server-side card capture (PAN posted to our FastAPI backend, then forwarded to the processor)",
+            "rejected_because": "Even briefly having the raw PAN transit and touch our application servers pulls us into SAQ A-EP/D-level scope (logging, memory handling, network segmentation all become audit-relevant) for no functional gain over client-side tokenized capture, which achieves the same UX with strictly less compliance surface."
+          }
+        ]
+      },
+      "checks": {
+        "key_considerations_addressed": true,
+        "no_anti_patterns": true,
+        "tradeoffs_articulated": true
+      },
+      "judge_score": 0.9,
+      "judge_rationale": "The reasoning directly supports the design by identifying a core insight (PAN doesn't need to be stored in-house, only tokens for recurring billing) that maps cleanly to the chosen architecture (processor delegation, SAQ A/A-EP scope reduction), and is grounded in specific PCI-DSS compliance burden details (SAQ levels, QSA audit costs, segmentation overhead) rather than generic security language.",
+      "cost_usd": 0.182765,
+      "duration_ms": 31926,
+      "token_usage": {}
+    },
+    {
+      "test_id": "ar-09",
+      "predicted": {
+        "reasoning": "Hit 99.99% and eliminate SPOF by making every layer of a single AWS region active-active across 3 AZs (compute, LB, DB, queue all AWS-managed or auto-failover), add idempotency + an outbox pattern to make retries safe during failover, treat the external payment gateway itself as a SPOF risk via multi-provider fallback, and use a warm-standby cross-region for full-region DR rather than full active-active multi-region since the ledger doesn't need cross-region synchronous consistency to meet the stated requirement.",
+        "design": "Edge: Route53 (globally distributed, no SPOF) fronting a multi-AZ ALB (AWS-managed, spans 3 AZs, no SPOF by construction). Compute: stateless ECS Fargate services, min 2 tasks per AZ across 3 AZs, target-tracking autoscaling, rolling/blue-green deploys via CodeDeploy so a bad deploy never removes capacity from all AZs at once. Chose Fargate over self-managed EKS specifically to avoid owning a K8s control-plane HA problem on top of the app HA problem. Data: Aurora PostgreSQL Multi-AZ cluster (1 writer + readers spread across 3 AZs, synchronous replication within region, automated failover in ~15-30s) - chosen over DynamoDB because the payment ledger needs real multi-row ACID transactions (debit+credit as one atomic write), which DynamoDB doesn't give natively. Every payment-mutating endpoint requires a client-supplied idempotency key with a unique DB constraint, so a client retry during an AZ failover/ALB re-route never double-charges. Writes to the ledger and outbound events (webhooks, settlement) go through a transactional outbox table in the same DB transaction as the ledger write, with a separate publisher polling the outbox into SQS - this avoids the dual-write inconsistency you'd get publishing to a queue and committing to Postgres as two separate operations. Async/downstream work (reconciliation, notifications) runs off SQS (fully managed, multi-AZ, no SPOF) rather than inline in the request path, so a slow downstream consumer can't take down payment authorization. External payment processor calls (card network/PSP) go through a circuit breaker with a secondary PSP as automatic fallback - the business's stated failure mode is 'a few minutes of downtime causes revenue loss,' and a single-provider PSP integration is a SPOF the infra design alone doesn't fix. Disaster recovery: Aurora Global Database replicates async to a second region (RPO ~1s, RTO ~1min for a promote), with infra-as-code (Terraform) for the standby region kept deployed but scaled to zero/minimal, and Route53 health-check-based failover to promote it on full primary-region loss - this is warm standby, not active-active, because the scenario states an uptime target, not a multi-region latency or geo-distribution requirement, and running the ledger active-active across regions would mean either cross-region consensus latency on every write or accepting eventual consistency on money movement, which the stated requirements don't justify paying for. Observability: every service emits Prometheus metrics (request success rate, p99 latency, idempotency-conflict rate, PSP circuit-breaker state) into the existing Grafana/CloudWatch setup, with alarms tied to an error budget for the 99.99% target so degradation is caught before it burns the monthly downtime budget (~4.3 min/month). Compliance: card data is tokenized at the PSP/vault layer - raw PANs never touch this service's DB, keeping the ACID-transaction ledger out of PCI CDE scope as much as possible.",
+        "alternatives_considered": [
+          {
+            "option": "Full active-active multi-region with a globally-consistent database (e.g. CockroachDB/Spanner-style)",
+            "rejected_because": "Strongly-consistent cross-region writes add a consensus round-trip to every ledger transaction and real operational complexity, and nothing in the scenario states a region-loss RTO/RPO or geo-latency requirement tight enough to justify that cost - single-region multi-AZ Aurora already meets AWS's published 99.99% multi-AZ SLA, and warm-standby DR covers the tail risk of a full region loss without taxing every transaction."
+          },
+          {
+            "option": "DynamoDB as the ledger store instead of Aurora Postgres",
+            "rejected_because": "DynamoDB's HA story is operationally simpler (no failover to manage), but it lacks native multi-row ACID transactions across arbitrary items the way Postgres does, which a double-entry payment ledger (debit + credit as one atomic commit) genuinely needs for correctness - operational simplicity isn't worth trading away transactional correctness on money movement."
+          }
+        ]
+      },
+      "checks": {
+        "key_considerations_addressed": true,
+        "no_anti_patterns": true,
+        "tradeoffs_articulated": true
+      },
+      "judge_score": 0.9,
+      "judge_rationale": "Reasoning grounds each major design choice (multi-AZ Aurora, idempotency+outbox, multi-provider PSP fallback, warm-standby DR) in specific task constraints (99.99% uptime, SPOF avoidance, revenue-loss impact from downtime) and explains why certain over-engineering is avoided (warm standby sufficient since ledger doesn't need cross-region consistency), demonstrating domain-grounded architectural thinking rather than generic principles.",
+      "cost_usd": 0.220279,
+      "duration_ms": 55932,
+      "token_usage": {}
+    },
+    {
+      "test_id": "ar-10",
+      "predicted": {
+        "reasoning": "At 200 users the event volume is trivial (low single-digit GB/month), so the right move is to lean entirely on the AWS logging primitives already in the stack (ECS Fargate -> CloudWatch Logs) rather than standing up a dedicated logging service, which would burn budget and ops effort on capacity this scale doesn't need.",
+        "design": "Apps already run on ECS Fargate; emit one structured JSON line per event (timestamp, user_id, event_type, service, request_id, payload) to stdout. The `awslogs` log driver ships this straight into a CloudWatch Logs group per environment - no new ingestion pipeline to build or run. Set `retention_in_days = 30` on the log group via Terraform so logs expire automatically and storage never grows unbounded - this alone satisfies the 30-day queryable requirement with zero cleanup jobs. Querying is done with CloudWatch Logs Insights (`filter`/`stats`/`parse` over the JSON fields) for ad-hoc investigation, and the existing Grafana instance (already deployed for Prometheus metrics) adds a CloudWatch data source for standing dashboards (event volume, error rate by user/service) so this doesn't introduce a second, bespoke observability tool. Add one AWS Budgets alarm scoped to CloudWatch Logs ingestion + Logs Insights query-scan costs, alerting before the $200 ceiling is at risk - this is the one piece of real budget protection needed, since a bug that logs in a tight loop is the actual way this design could blow past $200, not steady-state volume. Cost check at generous volume assumptions (200 users, even 500 events/user/day, ~0.5KB/event -> ~5GB/month ingested): ingestion $0.50/GB (~$2.50), steady-state storage at 30-day retention ~5GB x $0.03/GB (~$0.15), plus ~$0.50 for ad-hoc Insights query scans - total under $5/month, leaving roughly 40x headroom under the $200 ceiling. If analytical needs later outgrow Insights (e.g., monthly cohort rollups), the extension path is a scheduled export of CloudWatch Logs to S3 as Parquet queried with Athena, but that's deliberately not built now since nothing in the stated requirements calls for it yet.",
+        "alternatives_considered": [
+          {
+            "option": "S3 data lake + Glue Catalog + Athena for querying",
+            "rejected_because": "Athena's per-query and Glue crawler/catalog overhead adds real operational surface (partitioning scheme, schema management, minimum query charges) that only pays off at a query volume and data size this 200-user product doesn't have; CloudWatch Logs Insights already answers 'find/aggregate events over the last 30 days' without any of that setup."
+          },
+          {
+            "option": "Self-managed Postgres (RDS) table for log storage with SQL query access",
+            "rejected_because": "Even the smallest RDS instance running continuously is a meaningful chunk of a $200/month budget for a stateful service that then needs its own backup/patching/scaling story, when CloudWatch Logs Insights gives equivalent ad-hoc query capability at roughly $1-2/month total and zero operational ownership."
+          },
+          {
+            "option": "Managed ELK/OpenSearch stack for full-text log search",
+            "rejected_because": "The smallest OpenSearch Service or self-hosted Elasticsearch cluster costs more than the entire $200/month budget on its own; this is capacity built for a scale and search sophistication (fuzzy full-text search across huge volumes) this scenario doesn't call for."
+          }
+        ]
+      },
+      "checks": {
+        "key_considerations_addressed": true,
+        "no_anti_patterns": true,
+        "tradeoffs_articulated": true
+      },
+      "judge_score": 0.78,
+      "judge_rationale": "The reasoning correctly identifies volume as the key constraint (200 users \u2192 low single-digit GB/month) and derives a sound conclusion (use existing CloudWatch Logs primitives, not a dedicated service), and the answer coherently implements that reasoning with specific details (awslogs driver, structured JSON, Budgets alarm). However, the reasoning is incomplete: it doesn't explicitly ground itself in all task requirements\u2014it argues against over-engineering based on scale but says nothing about the 30-day queryability or $200/month budget constraints that shaped the design, even though the answer addresses both. The reasoning would be stronger if it articulated why CloudWatch Logs specifically satisfies retention + cost needs at this scale, rather than relying on the scale argument alone to justify the choice.",
+      "cost_usd": 0.203645,
+      "duration_ms": 45999,
+      "token_usage": {}
+    },
+    {
+      "test_id": "ar-11",
+      "predicted": {
+        "reasoning": "Treat this as a genuine CAP-flavored tension rather than something solvable for free: get strong consistency by making each cart single-writer within one home region, and get low global latency by making that home-region path the common case while being explicit that true cross-region strong consistency and low latency can't both hold for the rare traveling-user request.",
+        "design": "Per-cart home-region ownership, not global active-active consensus. Each account/cart is pinned to a home AWS region at creation (nearest to the user's signup location) - us-east, eu-west, ap-southeast, etc. Route53 latency-based routing + regional ALBs send each request to the nearest region, and a lightweight edge lookup (cart_id -> home_region, cached at the edge) forwards cart-mutation and cart-read calls to that cart's home region specifically, not just 'nearest region.'\n\nConsistency: within a cart's home region, a single DynamoDB table (cart_id as partition key) with strongly-consistent reads and conditional writes on a version attribute gives optimistic concurrency - two concurrent adds from different devices race on the same version check, the loser gets a 409 and retries against the now-current state. This serializes all mutation for a given cart through one region's leader without needing cross-region distributed transactions, so 'never stale or conflicting' holds because there's only ever one authoritative writer per cart. Mutation endpoints require an idempotency key so client retries (flaky mobile networks) can't double-add.\n\nLatency: for the overwhelming common case - a user shopping from their home region - reads/writes are already local, so this is fast by construction, no compromise needed. The cart *page* itself is split: CDN-cached shell (product images, recommendations, layout) served globally from CloudFront edge, and only the authoritative cart-line-items call goes to the home-region API - that's the one call that can't be cached, since caching it would reintroduce staleness.\n\nThe honest tradeoff: a user physically traveling to another continent, reading/writing their cart cross-region, pays real speed-of-light latency (100-250ms) to reach their home region for that consistent read/write - this is unavoidable if consistency is non-negotiable, and I'm not hiding it. Mitigate by keeping it rare (home-region affinity covers the vast majority of sessions) and by surfacing a brief 'syncing' state client-side rather than blocking, so perceived latency is smoothed even though the consistent operation itself isn't free.\n\nAvailability: multi-AZ synchronous replication within each region handles AZ failure without any consistency or latency compromise (standard RDS/DynamoDB HA). For a full home-region outage, async cross-region replication (DynamoDB Streams -> secondary region, RPO in low seconds) enables degraded-mode failover - explicitly a stale-but-available fallback for the outage window, communicated as such, not marketed as zero-RPO strong consistency, since building true zero-RPO synchronous cross-region replication would reintroduce the same latency cost this design exists to avoid.",
+        "alternatives_considered": [
+          {
+            "option": "Multi-region active-active with synchronous cross-region consensus (Spanner/CockroachDB-style), so every cart is strongly consistent from any region",
+            "rejected_because": "cross-continent consensus round-trips (~100-300ms) would be paid on every cart write/read for every user, not just the rare traveling-user case - it converts an occasional tradeoff into a permanent latency tax on the whole product, which directly fails the stated 'low latency everywhere' requirement instead of respecting it."
+          },
+          {
+            "option": "Eventually consistent multi-region replication (e.g., DynamoDB Global Tables, last-writer-wins) for low latency everywhere with async convergence",
+            "rejected_because": "LWW can silently drop a concurrent update - two devices adding different items to the same cart can resolve to one item silently disappearing - which is exactly the 'conflicting or stale state' the product explicitly said must never happen, not a corner case to accept for latency's sake."
+          }
+        ]
+      },
+      "checks": {
+        "key_considerations_addressed": true,
+        "no_anti_patterns": true,
+        "tradeoffs_articulated": true
+      },
+      "judge_score": 0.87,
+      "judge_rationale": "The reasoning correctly identifies and names the CAP tension as unavoidable (strong consistency + global low latency cannot both hold), explains the specific mechanism that resolves it (single-writer per home region), grounds the approach in actual task details (global users, consistency requirement, latency requirement, traveling-user tradeoff), and defends the interpretation honestly rather than pretending the tradeoff doesn't exist \u2014 the answer's structural checks and alternatives-rejected reinforce why this design is necessary, not arbitrary. The one coherence risk: the task says 'low latency for users everywhere in the world,' and the model accepts 100-250ms cross-region cost for traveling users; the reasoning frames this as 'rare' and 'unavoidable' (CAP-grounded), a defensible but debatable interpretation of whether 'everywhere' includes traveling users' non-home requests, not a failure to justify the answer chosen.",
+      "cost_usd": 0.214171,
+      "duration_ms": 58889,
+      "token_usage": {}
+    },
+    {
+      "test_id": "ar-12",
+      "predicted": {
+        "reasoning": "Given the explicit tension between 99.99%/no-SPOF and a $500/mo ceiling, the design pushes redundancy into the cheapest layers (stateless compute, managed queue) and concentrates the tighter consistency guarantee narrowly on billing writes, while being explicit about where the budget forces a real (not hidden) reliability gap.",
+        "design": "Compute: FastAPI billing API on ECS Fargate, min 2 tasks spread across 2 AZs behind an ALB (health-check-based failover, no autoscaling floor below 2 so a single task/AZ loss never drops to zero). Fargate + ALB is the cheapest way to get compute-layer redundancy (~$70-100/mo) with no SPOF.\n\nSystem of record: single Aurora/RDS Postgres Multi-AZ (synchronous standby, automatic failover, ~$150-180/mo for a right-sized instance at current subscriber volume). All billing-critical writes (charge creation, invoice state, subscription changes) go through the primary; all billing-critical reads (current balance, subscription status shown right after a write) also read the primary only - this is the read-after-write guarantee, enforced structurally (billing-critical queries never touch the replica) rather than via session-affinity tricks.\n\nA single async, lag-tolerant read replica (~$40-60/mo, small instance) serves everything that isn't billing-critical: usage dashboards, admin reporting, analytics. Tradeoff made explicit to the team: those views can be seconds stale after a write; if a support agent needs to see a just-created invoice immediately, that screen must hit the primary, not the dashboard API.\n\nPayment execution is delegated entirely to Stripe (or equivalent) rather than building card handling in-house - this both offloads a huge slice of the HA/compliance burden (Stripe's own multi-region uptime, PCI scope reduced to SAQ-A) onto infrastructure we aren't paying for out of the $500 budget, and keeps our system of record to references/webhooks, not card data. Webhook ingestion goes through SQS with idempotency keys stored in Postgres (dedup on Stripe event ID) so a redelivered webhook can't double-charge or double-post an invoice - SQS itself is redundant by default at negligible cost.\n\nCaching: an optional single-node ElastiCache (or none initially) for non-critical reads only (plan catalog, feature flags) - this node is a SPOF but a deliberately acceptable one, because its failure just falls back to a DB read, never produces a wrong billing answer.\n\nObservability: CloudWatch metrics/alarms (already included in AWS billing, no separate spend) on ALB 5xx rate, RDS failover events, and SQS DLQ depth - the two signals that would first indicate a billing outage.\n\nEstimated monthly cost: RDS Multi-AZ ~$160 + replica ~$50 + Fargate/ALB ~$90 + SQS/S3/CloudWatch/backups ~$40-60 \u2248 $340-360/mo, leaving headroom under $500 for traffic growth before re-architecting.\n\nHonest gap to flag to the team: this design is single-region. Multi-AZ Postgres realistically lands around 99.95-99.99% depending on how failover time is counted, not a guaranteed 99.99% - a real region-level outage is a genuine SPOF this design does not eliminate. Closing that gap needs either cross-region synchronous replication (adds real latency to every billing write and a second full DB spend, blowing the $500 ceiling) or accepting eventual consistency on cross-region reads (contradicts the stated strong read-after-write requirement). Given the budget, we mitigate region risk with cross-region automated snapshots/PITR for disaster recovery (RPO minutes, RTO tens of minutes via manual promotion) rather than seamless multi-region failover, and recommend revisiting this specific tradeoff explicitly with the team rather than silently accepting or silently over-spending to fix it.",
+        "alternatives_considered": [
+          {
+            "option": "DynamoDB (single-table, Global Tables for multi-region) instead of Postgres",
+            "rejected_because": "Global Tables replication is eventually consistent across regions, which directly conflicts with the stated strong read-after-write requirement for billing records; it would also force remodeling proration/invoice/plan-change logic, which is genuinely relational, into single-table NoSQL access patterns for no clear cost or availability win at this scale."
+          },
+          {
+            "option": "CockroachDB (or Spanner) for distributed strong-consistency SQL across regions",
+            "rejected_because": "Would satisfy HA and consistency together in principle, but the node count needed for real multi-region survivability plus the operational cost of adopting a new SQL dialect/consistency model the team doesn't already run (versus their existing Postgres/dbt toolchain) doesn't fit the $500/mo ceiling or the team's current operational footprint."
+          },
+          {
+            "option": "Single-AZ RDS instance to cut cost further",
+            "rejected_because": "Directly violates the stated no-single-point-of-failure requirement - an AZ outage would take billing down entirely; Multi-AZ's incremental cost (~$60-80/mo more) is the cheapest lever available for eliminating the most likely real-world failure mode (an AZ, not a whole region, going down)."
+          }
+        ]
+      },
+      "checks": {
+        "key_considerations_addressed": true,
+        "no_anti_patterns": true,
+        "tradeoffs_articulated": true
+      },
+      "judge_score": 0.88,
+      "judge_rationale": "Reasoning directly maps to design details: identifies the core tension (uptime/SPOF/budget), predicts solution strategy (cheap redundancy + narrow consistency scope), and the design exemplifies it exactly (Fargate+ALB+SQS for $70-90mo redundancy, read-primary-only for billing critical paths, read-replica for lag-tolerant views, explicit region-SPOF gap acknowledged as the budget tradeoff boundary). Every claim is grounded in specific cost figures or architectural choices, not generic. Minor: reasoning is technically dense as a single sentence, but this reflects the actual problem complexity rather than weakness.",
+      "cost_usd": 0.21846100000000002,
+      "duration_ms": 59411,
+      "token_usage": {}
+    }
+  ]
+}

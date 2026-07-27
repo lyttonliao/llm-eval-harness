@@ -37,9 +37,9 @@ def call_claude(system_prompt: str, user_message: str, model: str = "haiku") -> 
         "json",
     ]
     try:
-        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=240)
     except subprocess.TimeoutExpired:
-        return CliResult(text="", cost_usd=0.0, duration_ms=60_000, error="timeout")
+        return CliResult(text="", cost_usd=0.0, duration_ms=240_000, error="timeout")
 
     if proc.returncode != 0:
         return CliResult(text="", cost_usd=0.0, duration_ms=0, error=proc.stderr.strip() or "nonzero exit")
