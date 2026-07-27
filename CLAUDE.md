@@ -1033,3 +1033,74 @@ run diverged from its own offline prediction (65% predicted vs. 51.7% actual on
 motivated it, which confirms the fix behaves as intended but not that it generalizes to
 new generations. `ms-02`'s and `ms-12`'s `required_steps` fixes in particular haven't
 been checked against fresh output at all.
+
+## `multi_step` fresh N-sample run against the fixed case file (2026-07-27) - one bogus run discarded, the honest re-run generalizes much better than the prior cycle
+
+Ran the deferred fresh validation: `python -m eval_harness run --suite multi_step
+--prompt multi_step_v1 --model haiku --samples 5` against the just-fixed
+`multi_step.jsonl`. First attempt (`runs/20260726T232906Z__multi_step_v1__haiku.json`)
+was discarded, not trusted - 13 of 60 generation calls failed outright (`nonzero exit`,
+empty `predicted={}`, concentrated in `ms-10`/`ms-11`/`ms-12`) and all 60 judge calls
+failed the same way (`avg_judge_score` read a flat 0.0, the exact bogus-run shape this
+file has warned about since the `bug_triage` section), both far beyond any prior
+single-suite reliability blip recorded here (previously it was the judge pass failing
+partway through one run, never generation itself failing this broadly). A direct health
+check (`claude -p` with a trivial prompt) succeeded cleanly immediately after, so this
+reads as a transient outage during that specific run's execution window, not an ongoing
+break - deleted per established practice and re-run.
+
+The re-run (`runs/20260727T024430Z__multi_step_v1__haiku.json`, $3.00, zero generation
+failures, judge rationales all real prose) is trusted:
+
+| check | offline-predicted (post-fix, R1+R2 combined) | fresh N=5 (new samples) |
+|---|---|---|
+| step_coverage | 79.2% | 68.3% |
+| ordering_correct | 53.3% | 55.0% |
+| fully_correct | 40.0% | 36.7% |
+| no_false_positives | 100% | 100% |
+
+**The generalization gap is real but much smaller than the prior revision cycle's** (that
+one predicted 65% step_coverage and got 51.7% actual, a 13pp miss; this one predicted
+79.2% and got 68.3%, an 11pp miss, but `ordering_correct` and `fully_correct` landed
+within ~3pp of prediction rather than diverging by 10+pp). Direct inspection of the two
+cases still at 0/5 (`ms-10`, `ms-12`) found two distinct, real causes, not one repeated
+pattern:
+
+- **`ms-12` group3 (rollback) has a genuine remaining phrase gap, not yet touched by
+  this pass**: one sample's `killswitch_setup` step says "revert either team to old
+  pipeline if critical" - not matching any of the four flat phrases (`"rollback"`,
+  `"revert to the old pipeline"`, `"fall back"`, `"revert to their old pipeline"`), and
+  this group has no regex/pattern entry at all, unlike the groups this pass actually
+  edited. A real, fixable gap - just not one this pass's targeted fixes (which touched
+  groups 0-2, not group3) happened to cover.
+- **`ms-10`'s remaining misses are the concrete-vs-abstract vocabulary gap this file has
+  hit before** (`architecture`'s `ar-02`/`ar-05`/`ar-06`, this suite's own N=5 finding),
+  not a new bug class: samples phrase full-rollout completion as "mark rollout as
+  complete" (no "all regions"/"100%" nearby), "full adoption... 30+ days post-full-
+  launch" (no "complete"/"shift" verb), or ramp within-canary to 100% while separately
+  describing multi-region expansion in unrelated wording - none of which the three
+  regexes this pass added actually cover, and one of which (the within-canary 100% ramp)
+  is a case where a *broader* regex would have been actively wrong to add, per the
+  pattern already rejected in the earlier revision pass for exactly this scenario.
+
+**A third, cross-cutting cause recurred independently in this run, now confirmed across
+enough cases to call it a real scorer limitation rather than a fluke**: `ms-12` sample 0
+has its audit step (group0) and shared-template step (group1) land at the *same* array
+index because the model wrote one combined step doing both
+("Audit both teams'... design a unified pipeline template..."), which the strict
+less-than ordering check can never pass on a tie. This is the identical shape already
+found independently in `ms-01` (dual-write/backfill combined) and `ms-08` (canary-start/
+observe combined) during the fix pass above - three different cases, same root cause
+(the scorer has no way to treat "both required ideas landed in one step, correctly
+un-ordered because there's nothing to order between them" as a pass). Worth treating as
+a real scorer enhancement candidate (e.g. `<=` instead of strict `<` when both groups
+match the same index) rather than continuing to document it per-case, since it's now
+recurred three times with a consistent, well-understood cause.
+
+**Not chased further this session.** Following this file's own "don't keep patching
+narrowly, recognize the systemic shape" precedent (`architecture`'s concrete-vs-abstract
+finding, `multi_step`'s own scorer-phrase-strictness finding): the tied-index issue in
+particular has enough independent confirmation now to justify a scorer change rather
+than another case-by-case documentation entry, and `ms-10`'s abstract-completion-phrase
+gap is the same class of problem the embeddings approach was rejected for solving
+safely - both are flagged as decisions for the next session rather than acted on here.
