@@ -177,6 +177,14 @@ def rule_based_score_multi_step(case: TestCase, output: ModelOutput) -> dict[str
     coverage/false-positive cases) get a vacuous pass, same precedent as
     refactor/summarization's always-present, sometimes-empty checks.
 
+    A constraint also passes when both groups match the SAME step index (early_idx
+    <= late_idx, not strict <). Confirmed independently on ms-01, ms-08, and ms-12
+    (see run history): a model sometimes narrates both required ideas in one combined
+    sentence ("dual-write allows new writes to populate status_id while backfill
+    processes historical data"), which is a correct, un-ordered plan - there's nothing
+    to order between two ideas expressed in the same step - not a reversed one. Strict
+    < was scoring that as a failure.
+
     A group may optionally carry a "patterns" list (regexes, matched case-insensitively
     via re.search) alongside "phrases" - added specifically for numeric/percentage-ramp
     phrasing ("switch 5-10% of traffic", "expand to 50%...then 100%") that no fixed
@@ -207,7 +215,7 @@ def rule_based_score_multi_step(case: TestCase, output: ModelOutput) -> dict[str
     for early, late in case.expected["ordering_constraints"]:
         early_idx, late_idx = group_indices[early], group_indices[late]
         if early_idx is not None and late_idx is not None:
-            constraint_results.append(early_idx < late_idx)
+            constraint_results.append(early_idx <= late_idx)
 
     if case.expected["ordering_constraints"] and not constraint_results:
         ordering_correct = False

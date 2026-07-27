@@ -406,6 +406,19 @@ def test_rule_based_score_multi_step_fails_ordering_when_steps_are_reversed():
     assert checks["ordering_correct"] is False
 
 
+def test_rule_based_score_multi_step_ordering_passes_when_both_groups_match_same_step():
+    # a model can narrate both required ideas in one combined step ("backfill
+    # historical data while the app dual-writes going forward") - both groups match
+    # the same index, and that's a correct, un-ordered plan, not a reversed one.
+    output = _multi_step_output([
+        {"phase": "migrate", "detail": "backfill historical data, then cut over reads to the new column"},
+        {"phase": "rollback", "detail": "keep a rollback plan ready"},
+    ])
+    checks = rule_based_score_multi_step(MULTI_STEP_CASE, output)
+    assert checks["step_coverage"] is True
+    assert checks["ordering_correct"] is True
+
+
 def test_rule_based_score_multi_step_ordering_fails_outright_when_no_constraint_is_evaluable():
     # empty plan: neither group in the ordering constraint was matched at all -
     # there's no order to judge, so ordering_correct should not vacuously pass

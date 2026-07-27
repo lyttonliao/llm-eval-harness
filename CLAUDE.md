@@ -1104,3 +1104,144 @@ particular has enough independent confirmation now to justify a scorer change ra
 than another case-by-case documentation entry, and `ms-10`'s abstract-completion-phrase
 gap is the same class of problem the embeddings approach was rejected for solving
 safely - both are flagged as decisions for the next session rather than acted on here.
+
+## `multi_step` tied-index scorer fix + two more phrase fixes (2026-07-27) - the deferred scorer decision, done, all offline
+
+Picked up the two decisions the prior session flagged and deferred. Zero new `claude -p`
+calls this pass - every number below comes from re-scoring the same two saved run files
+(`20260726T212852Z`, `20260727T024430Z`, 120 real haiku samples total) against code/case
+changes, per this project's established "verify against existing data before paying for
+a new run" discipline.
+
+**Tied-index fix**: `rule_based_score_multi_step`'s `ordering_correct` check
+(`scorers.py`) changed `early_idx < late_idx` to `early_idx <= late_idx`. This directly
+targets the scorer limitation confirmed independently three times in the prior
+session (`ms-01`, `ms-08`, `ms-12`) - a model narrating two required ideas in one
+combined step lands both groups at the same array index, which is a correct,
+un-ordered plan (there's nothing to order between two ideas expressed in the same
+sentence), not a reversed one. Covered by a new test
+(`test_rule_based_score_multi_step_ordering_passes_when_both_groups_match_same_step`).
+
+**Two more phrase-group fixes**, both confirmed by direct inspection of real saved
+output before being applied (same discipline as every fix in this file):
+- `ms-02` group1 (monitor): the bare `"monitor"` phrase was a false-positive magnet -
+  it matched an early, generic `monitoring_setup`/`deploy_monitoring_and_alerts`-style
+  infra-provisioning step in most samples, which falsely satisfied `step_coverage` at
+  an index *before* the canary step even started, corrupting `ordering_correct` for
+  the `[0,1]` constraint. Removed the bare phrase; added a co-occurrence pattern
+  requiring a monitor-word (`monitor|observ|watch|check`) alongside `"canary"` in the
+  *same* step - confirmed this doesn't collide with the false early step (verified: none
+  of the observed `monitoring_setup`-style steps mention "canary") while still finding
+  the real canary-monitoring step in every sample checked. `"check"` was added after the
+  first version (canary + monitor/observ/watch only) still missed one real sample
+  phrased as "Check metrics... against baseline thresholds" - confirmed the addition
+  only gains matches, never flips an existing real match to `None`, before keeping it.
+- `ms-12` group3 (rollback): one sample phrased the kill-switch step as "revert either
+  team to old pipeline if critical" - didn't match any of the four flat phrases. Added
+  a scoped pattern (`revert[\w\s]{0,20}old pipeline`) rather than a bare `"revert"`
+  phrase; confirmed against every `ms-12` sample in both saved runs that it only matches
+  genuine rollback statements and never the unrelated cutover/decommission/parallel-run
+  steps that also happen to mention "old pipeline" without "revert" nearby.
+
+**Combined effect, re-scored offline against the same 120 samples (zero new cost):**
+
+| check | before (post prior-session fixes) | after (this pass) |
+|---|---|---|
+| step_coverage | 58.3% | 75.0% |
+| ordering_correct | 51.7% (still `<`) | 70.8% (with `<=`) |
+| no_false_positives | 100% | 100% |
+| fully_correct | 30.0% | 52.5% |
+
+**This 52.5% is an offline re-score, not a fresh run, and should not be quoted as this
+suite's real accuracy without a new sample.** The prior two revision cycles both showed
+offline predictions overstate real generalization (one predicted 65% step_coverage and
+got 51.7% actual; another predicted 79.2% and got 68.3% actual) - there's no reason to
+expect this pass is different, and it hasn't been checked against fresh output. The
+last *actual* fresh-run number for this suite remains **36.7%** fully_correct
+(`runs/20260727T024430Z__multi_step_v1__haiku.json`, N=5) - that is the number to use
+for any calibration decision until a new run happens, not 52.5%.
+
+**Not re-run against the model, deliberately** - the user explicitly did not want
+another paid run this session. A fresh N-sample run to see whether the real
+fully_correct rate actually moves is the natural next step whenever that constraint
+lifts.
+
+## Router tier synthesis across all 7 suites (2026-07-27) - first cross-suite `TYPE_DOMAIN_GRID` reconciliation
+
+`llm-task-router/classifier.py`'s `TYPE_DOMAIN_GRID` (task_type x domain -> tier) is a
+hand-authored heuristic table that predates any calibration run in this repo. With all
+7 task types now having at least one judged Claude-tier benchmark on record, went
+through the full set to check the grid against real data and correct what the data
+actually contradicts - without a new paid run, per the same constraint as the scorer
+work above. Full per-suite verdicts already exist earlier in this file; this section is
+the cross-suite synthesis and the resulting `TYPE_DOMAIN_GRID` change.
+
+**Two factual corrections made before trusting anything, both verified directly against
+raw run JSON/git history rather than taken from memory:**
+- `multi_step`'s real trusted number is **36.7%** (the last fresh N=5 run), not the
+  52.5% offline re-score from this session's scorer-fix pass above - see that section's
+  own explicit caveat against quoting it as real accuracy.
+- `triage`'s "monotonic, not-a-ceiling-effect" story (haiku 60% < sonnet 66.7% < opus
+  73.3%) is thinner than it reads: there are three haiku `v1_naive` runs on disk, not
+  one. The canonical judged run (`20260720T072220Z`, 60.0% fully_correct / 100%
+  category acc) is what this file's earlier table cites, but two more real, rule-scored
+  (`--no-judge`, confirmed via `judge_rationale: "judging disabled"`, not a silent
+  failure) haiku runs exist - `20260720T022514Z` (33.3% / 80%) and `20260723T080420Z`
+  (40% / 80%, recorded incidentally during Codex-provider-flag verification) - both
+  meaningfully below the canonical number on both metrics. Sonnet and opus each have
+  exactly one run. The whole triage row is N=1-per-tier on the judged number, with a
+  real, unreconciled second/third rule-scored haiku sample sitting on disk - the exact
+  situation this file's own "don't conclude on N=1" policy (already applied to
+  `code_review` and `multi_step`) hasn't been applied to until now.
+
+**Two rows changed - `code_gen` and `refactor`, both to uniform `L`:** both suites show
+zero measured discrimination across haiku/sonnet/opus (100% tests_passed/fully_correct
+on all three tiers), on suites specifically hardened with adversarial cases individually
+validated to fail plausible-wrong implementations (not a ceiling-effect artifact - see
+each suite's case-design section above). No case in either suite shows a higher tier
+outperforming haiku, so the grid's prior `H`/`M` cells for these rows reflected pillar
+22's original heuristic guess, not a demonstrated need for a pricier tier. A "conservative
+middle ground" (H->M) was considered and rejected - M is exactly as unsupported by this
+data as H, so it would just be a smaller unjustified expense instead of a larger one.
+**Caveat stated explicitly, not hidden:** neither suite is domain-segmented, so this
+removes a domain-*blind* judgment call, it does not add domain-*aware* evidence that
+e.g. infra-specific code-gen (Terraform/K8s manifests) is safe at the cheap tier -
+acceptable given the no-new-runs constraint, but a real gap, not a resolved one.
+
+**Five rows left untouched, each with its own specific unblock condition (not silently
+dropped):**
+- `summarization`: already uniform `L` - data confirms it's correct, haiku is the
+  empirically *best* tier here (87.5% vs sonnet 62.5%/opus 75.0%), not just adequate.
+  No unblock needed.
+- `triage`: `L`/`M` split unchanged, but its confidence is downgraded in this writeup
+  from "confirmed by data" to the same bucket as `code_review` below - directionally
+  plausible, not yet confirmed. Unblock: a `--samples N` re-run reconciling the three
+  conflicting haiku numbers above.
+- `code_review`: `M` cells unchanged. Data suggests they're questionable (sonnet ties
+  haiku's accuracy with worse judge coherence - see that suite's own table above), but
+  this is explicitly N=1 data and the project's own established rule for this exact
+  suite is not to act on N=1. Unblock: a `--samples N` re-run, same as triage.
+- `architecture`: uniform `H` unchanged. Confirmed, not just suspected, scorer bug:
+  opus's real `ar-07` output rejects Kubernetes correctly inside its own `design` field
+  prose ("Explicitly not included, and why: no Kubernetes..."), but `must_not_include`
+  only checks `design` for anti-pattern bait and has no way to distinguish "proposing X"
+  from "explicitly rejecting X" when that rejection isn't in the separate
+  `alternatives_considered` field - directly deflating opus's 58.3% number alongside an
+  unrelated `ar-11` JSON parse failure. Also the highest-stakes row (flagship fallback
+  for unrecognized task shapes - see `classify_description`'s docstring). Unblock: fix
+  the `must_not_include` scorer to pool `design` + `alternatives_considered`'s
+  `rejected_because` text (already flagged as a follow-up in this suite's own section
+  above), then a clean re-run.
+- `multi_step`: `M`/`H` unchanged. Zero sonnet/opus data exists for this suite at all -
+  haiku-only, and its own real (non-scorer) findings (`ms-01`'s backfill-before-dual-write
+  ordering defect, `ms-03`'s missing shadow-traffic step) argue for caution, not
+  relaxation. No comparative basis exists to change tier assignment either direction yet.
+  Unblock: a sonnet/opus `multi_step` run.
+
+**Implementation**: `llm_task_router/classifier.py`'s `TYPE_DOMAIN_GRID` rows for
+`code_gen`/`refactor` changed to uniform `"L"`; module docstring updated to stop
+claiming the whole grid is pillar 22's *confirmed* table (only two rows now are).
+`tests/test_classifier.py`'s `test_infra_code_gen_escalates_high` (no longer true)
+replaced with `test_code_gen_is_uniformly_low` and `test_refactor_is_uniformly_low`,
+mirroring the existing `test_summarization_is_uniformly_low` pattern. Both repos' test
+suites pass (68/68 in `llm-task-router`, 128/128 here). No new model calls, no cost.
