@@ -90,25 +90,51 @@ leaderboard results. Most are a single sample per model. They are useful
 calibration evidence and regression signals, not claims of broad model
 superiority.
 
-## Quick start
+## Setup
 
-Requirements:
+### 1. Prerequisites
 
 - Python 3.14+
-- [`uv`](https://docs.astral.sh/uv/) (recommended)
-- An authenticated `claude` CLI for Claude runs, or an authenticated `codex`
-  CLI for Codex runs
+- [`uv`](https://docs.astral.sh/uv/) (recommended — all commands below use it)
+- An authenticated `claude` CLI (`claude auth login --claudeai`) for Claude
+  runs — required even for Codex-provider runs, since the reasoning-coherence
+  judge is hardcoded to Claude regardless of which provider is under test
+  (cross-family judging, see "Design")
+- An authenticated `codex` CLI only if you also want to benchmark Codex
+  models; find a reachable model name first (Codex model names are
+  account-dependent — there's no safe default to guess, see "Commands")
+
+### 2. Install dependencies
 
 ```bash
 uv sync --group dev
+```
 
-# Run the test suite
+Application code has zero third-party dependencies (stdlib only); `uv sync`
+here just pulls in `pytest` for the dev group.
+
+### 3. Verify
+
+```bash
 uv run pytest -q
 
+uv run python -m eval_harness run --prompt v1_naive --model haiku
+```
+
+A completed run that saves a JSON artifact under `runs/` (rather than a
+`claude` auth error) confirms the CLI adapter and package are wired up
+correctly.
+
+## Usage
+
+### Running a suite
+
+```bash
 # Evaluate the default bug-triage suite with Claude Haiku
 uv run python -m eval_harness run --prompt v1_naive --model haiku
 
-# Run code generation without the optional judge pass
+# Run code generation without the optional judge pass (cheaper/faster while
+# iterating on the runner or parsing, rather than on prompt quality)
 uv run python -m eval_harness run \
   --suite code_gen --prompt code_gen_v1 --model haiku --no-judge
 
@@ -121,16 +147,66 @@ uv run python -m eval_harness run \
   --suite bug_triage --prompt v1_naive \
   --provider codex --model gpt-5.6-terra
 
-# Run two prompts head-to-head
+# Run each case 5 times and report a per-case pass rate instead of pass/fail
+# (cost/call-count scale by N — see "Working rules" in CLAUDE.md on not
+# concluding from a single sample)
+uv run python -m eval_harness run \
+  --suite multi_step --prompt multi_step_v1 --model haiku --samples 5
+```
+
+`--suite` defaults to `bug_triage`; the seven available suites are
+`bug_triage`, `code_gen`, `summarization`, `code_review`, `refactor`,
+`multi_step`, `architecture` (matching `eval_harness/cases/*.jsonl`).
+`--prompt` names a file in `eval_harness/prompts/` without the `.txt`
+extension (e.g. `v1_naive`, `v2_rubric`, `summarization_v1`,
+`code_gen_v1` — one file per suite/variant; see that directory for the
+full list). `--provider` defaults to `claude`, with no cross-provider
+default for `--model`: omitting it resolves to `haiku` for Claude but is a
+hard error for Codex, since a run without an explicit model name once saved
+to disk as unusable `codex/None` calibration data. Codex CLI output exposes
+no dollar-cost field, so its `$0.00` cost is a placeholder — the harness
+records the CLI's input/cached-input/output/reasoning-output/total token
+counts instead.
+
+### Comparing two prompts head-to-head
+
+```bash
 uv run python -m eval_harness compare \
   --prompt-a v1_naive --prompt-b v2_rubric --model haiku
 ```
 
-`--provider` defaults to `claude`. Codex model names are account-dependent,
-so `--model` is required for Codex runs. Codex CLI output does not expose a
-dollar-cost field, so its `$0.00` cost is a placeholder; the harness records
-the CLI's input, cached-input, output, reasoning-output, and total token
-counts instead.
+Runs both prompts back-to-back on the same suite/model, then prints a
+side-by-side of per-check accuracy, fully-correct rate, judge coherence,
+cost, and total tokens.
+
+### Reading results
+
+Every run is saved as a timestamped JSON artifact under `runs/`
+(`<timestamp>__<prompt>__<model>.json`), with the provider, model, aggregate
+metrics, and per-case results — `print_report()` also diffs the new run
+against the most recent previous run for the same prompt/model, so
+regressions show up immediately in the console output. Delete a run from
+`runs/` if it comes back as a bogus sample (every case `parse_error`, or a
+flat `0.0` judge score usually means an inaccessible model, a quota
+lockout, or a transient CLI failure — read the error text before trusting
+the number; see "Working rules" in `CLAUDE.md`).
+
+### Adding a new suite or prompt variant
+
+See `CLAUDE.md`, "Adding a new eval suite" for the full checklist (case
+schema, scorer wiring, validating each case in both directions before
+trusting it). To add a prompt variant for an existing suite, drop a new
+`.txt` file in `eval_harness/prompts/` and pass its filename (without
+`.txt`) as `--prompt`.
+
+### Calibrating router tiers
+
+Use the `calibrate-tier` skill (`.claude/skills/calibrate-tier/SKILL.md`) to
+turn a set of runs into the quality-floor data `llm-task-router`'s
+`tiers.py`/`classifier.TYPE_DOMAIN_GRID` are calibrated from. See `CLAUDE.md`,
+"Router tier calibration status" for what's already calibrated and "Router
+tier synthesis across all 7 suites" for the full table — don't hand-derive
+tier entries from a single run; follow that pointer instead.
 
 ## Repository layout
 
